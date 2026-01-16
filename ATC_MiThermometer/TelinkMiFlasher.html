@@ -946,9 +946,9 @@ function CGG1_Action(model) {
 			});
 		}).catch(handleError);
 }
-function CGD1_Action(model) {
+function CGD1_Action() {
         cus017Chr = null;
-        addLog("Detected Qingping CGG1 device " + model);
+        addLog("Detected Qingping CGG1 device");
         $("custcfg").innerHTML = '<hr>When doing an activation here the device is needed to be activated in the Mi app again when wanted to use there.<br>Press and hold the button on the back of CGG1-M for 2 seconds until the Bluetooth i>
         gattServer.getPrimaryService("22210000-554a-4546-5542-46534450464d")
                 .then(service => {
