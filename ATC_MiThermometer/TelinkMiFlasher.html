@@ -946,6 +946,25 @@ function CGG1_Action(model) {
 			});
 		}).catch(handleError);
 }
+function CGD1_Action(model) {
+        cus017Chr = null;
+        addLog("Detected Qingping CGG1 device " + model);
+        $("custcfg").innerHTML = '<hr>When doing an activation here the device is needed to be activated in the Mi app again when wanted to use there.<br>Press and hold the button on the back of CGG1-M for 2 seconds until the Bluetooth i>
+        gattServer.getPrimaryService("22210000-554a-4546-5542-46534450464d")
+                .then(service => {
+                        addClog("Found Custom service");
+                        cusService = service;
+                        return cusService.getCharacteristic(0x0100);
+                }).then(characteristic => {
+                        cus100Chr = characteristic;
+                        addClog('Found 0x0100 characteristic');
+                        return cus100Chr.startNotifications().then(() => {
+                                cus100Chr.addEventListener('characteristicvaluechanged',
+                                        event => CustomQingpingParse(event.target.value));
+                                miAuthorization();
+                        });
+                }).catch(handleError);
+}
 //var micharacteristics;
 function miAction() {
 	writeCharacteristicSpeed = null;
@@ -2214,7 +2233,7 @@ function doConnect() {
 			else if(bluetoothDevice.name.substr(0,18) == "Qingping Temp RH M")
 				CGG1_Action("2022");
                         else if(bluetoothDevice.name.substr(0,20) == "Qingping Alarm Clock")
-                                CGPR1_Action();
+                                CGD1_Action();
 		    else
 				addLog("Unknown Qingping Firmware");
 				setStatus("Unknown Qingping Firmware");
