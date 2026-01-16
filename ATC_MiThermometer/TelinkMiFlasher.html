@@ -2213,6 +2213,8 @@ function doConnect() {
 				CGG1_Action("2020-2021");
 			else if(bluetoothDevice.name.substr(0,18) == "Qingping Temp RH M")
 				CGG1_Action("2022");
+                        else if(bluetoothDevice.name.substr(0,20) == "Qingping Alarm Clock")
+                                CGPR1_Action();
 		    else
 				addLog("Unknown Qingping Firmware");
 				setStatus("Unknown Qingping Firmware");
