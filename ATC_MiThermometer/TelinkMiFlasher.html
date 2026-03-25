@@ -2207,7 +2207,8 @@ function doConnect() {
 			else if (services[i].uuid == "0000181a-0000-1000-8000-00805f9b34fb") devIdEnabled = true;
 			else if (services[i].uuid == "0000ffe0-0000-1000-8000-00805f9b34fb") devTest = true;
 			else if (services[i].uuid == "0000fcd2-0000-1000-8000-00805f9b34fb") bthomeEnabled = true;
-			else if (services[i].uuid == "0000180a-0000-1000-8000-00805f9b34fb") devInfEnabled = true; // Device Information Service
+			else if (services[i].uuid == "0000180a-0000-1000-8000-00805f9b34fb") devInfEnabled = true;
+			else if (services[i].uuid == "0000fe95-0000-1000-8000-00805f9b34fb") devInfEnabled = true; // Device Information Service
 		}
 		if(otaEnabled) {
 			return gattServer.getPrimaryService('00010203-0405-0607-0809-0a0b0c0d1912');
