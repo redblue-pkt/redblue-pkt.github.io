@@ -12,7 +12,7 @@
 var bluetoothDevice, gattServer, Theservice, writeCharacteristic;
 var ServiceMain, writeCharacteristicSpeed = null, nitifiyCharTemp, time_char, enc_main, enc_10, enc_19;
 var mhoUnitCharacteristic = null, mhoModeCharacteristic = null, mhoBatteryCharacteristic = null, mhoEnvCharacteristic = null, mhoAlarmCharacteristic = null;
-var mhoC303Enabled = false;
+var mhoC303Enabled = false, mhoEnvNotifyStarted = false;
 //Firmware values
 const MAX_BLE_OTA_SIZE = 0x20000; // 128KB
 const MAX_EXT_OTA_SIZE = 0x34000; // 208KB
@@ -1016,26 +1016,20 @@ function renderMhoC303Controls() {
 	if (!isMhoC303Device()) return;
 	let offset = new Date().getTimezoneOffset();
 	let zone = -(parseInt(offset / 60));
-	$("custcfg").innerHTML = `
-		<hr><b>MHO-C303 controls</b><br>
+	let html = `
+		<hr><b>MHO-C303</b><br>
 		Time zone: <input type="number" id="mho_zone" min="-12" max="14" value="${zone}" style="width:70px">
 		<label><input type="checkbox" id="mho_30minOffset"> Add 30min offset</label>
-		<button type="button" onclick="setMhoClock();">Set clock</button><br><br>
-		Unit:
-		<label><input type="radio" name="mho_unit" value="0" checked> C</label>
-		<label><input type="radio" name="mho_unit" value="1"> F</label>
-		<button type="button" onclick="setMhoUnit();">Set unit</button><br><br>
-		Mode:
-		<label><input type="radio" name="mho_mode" value="1" checked> Primary time</label>
-		<label><input type="radio" name="mho_mode" value="2"> Primary temp</label>
-		<button type="button" onclick="setMhoMode();">Set mode</button><br><br>
-		Alarm:
+		<button type="button" onclick="setMhoClock();">Sync time</button><br><br>
+		Alarm time: <input type="number" id="mho_alarm_hour" min="0" max="23" value="7" style="width:60px"> :
+		<input type="number" id="mho_alarm_minute" min="0" max="59" value="0" style="width:60px">
 		<label><input type="radio" name="mho_alarm" value="0" checked> Off</label>
 		<label><input type="radio" name="mho_alarm" value="1"> On</label>
-		<button type="button" onclick="setMhoAlarm();">Set alarm</button><br><br>
-		<button type="button" onclick="readMhoBattery();">Read battery</button> <span id="mho_batt">?</span><br><br>
-		<small>Uses MHO-C303 BLE controls from giedriuslt/mho-c303-clock-sync adapted to the current connection flow.</small><br>
+		<button type="button" onclick="sendMhoAlarm();">Send alarm</button><br>
+		<small>Alarm enable/disable is wired. Hour/minute fields are kept in the UI, but the BLE field for alarm time is still not identified in the current public sources.</small><br><br>
+		Battery: <span id="mho_batt">?</span> <button type="button" onclick="readMhoBattery();">Read battery</button><br>
 	`;
+	$("custcfg").innerHTML = html;
 }
 
 function getMhoCurrentTimeBuffer() {
@@ -1045,8 +1039,14 @@ function getMhoCurrentTimeBuffer() {
 	let view = new DataView(buffer);
 	view.setUint32(0, dateTime, true);
 	let zone = parseInt($("mho_zone") ? $("mho_zone").value : 0, 10);
-	view.setInt8(4, zone);
+	view.setUint8(4, zone & 0xff);
 	return buffer;
+}
+
+function syncMhoBatteryLabel(value) {
+	let batt = value.getUint8(0);
+	if ($('mho_batt')) $('mho_batt').innerHTML = batt + '%';
+	addLog('MHO-C303 battery level: ' + batt + '%');
 }
 
 function setMhoClock() {
@@ -1083,15 +1083,18 @@ function setMhoMode() {
 	}).catch(handleError);
 }
 
-function setMhoAlarm() {
+function sendMhoAlarm() {
 	if (!mhoAlarmCharacteristic) {
 		addLog('MHO-C303 alarm characteristic not found');
 		return;
 	}
 	let alarmValue = parseInt(document.querySelector('input[name="mho_alarm"]:checked').value, 10);
+	let hour = $("mho_alarm_hour") ? parseInt($("mho_alarm_hour").value, 10) : 0;
+		let minute = $("mho_alarm_minute") ? parseInt($("mho_alarm_minute").value, 10) : 0;
 	let buffer = new Uint8Array([alarmValue]);
 	mhoAlarmCharacteristic.writeValue(buffer).then(_ => {
-		addLog('MHO-C303 alarm updated to ' + alarmValue);
+		addLog('MHO-C303 alarm state updated to ' + alarmValue + ' (requested ' + hour + ':' + ('0' + minute).slice(-2) + ')');
+		addAlog('Alarm hour/minute write is not mapped yet in the public MHO-C303 BLE sources. Only ON/OFF was sent.');
 	}).catch(handleError);
 }
 
@@ -1101,9 +1104,7 @@ function readMhoBattery() {
 		return;
 	}
 	mhoBatteryCharacteristic.readValue().then(value => {
-		let batt = value.getUint8(0);
-		if ($('mho_batt')) $('mho_batt').innerHTML = batt + '%';
-		addLog('MHO-C303 battery level: ' + batt + '%');
+		syncMhoBatteryLabel(value);
 	}).catch(handleError);
 }
 //var micharacteristics;
@@ -1129,12 +1130,14 @@ function miAction() {
 					{ addClog('Found MiTemp characteristic');
 						nitifiyCharTemp = characteristic;
 						mhoEnvCharacteristic = characteristic;
+						if (mhoEnvNotifyStarted) return;
+						mhoEnvNotifyStarted = true;
 						return nitifiyCharTemp.startNotifications().then(() => {
 							nitifiyCharTemp.addEventListener('characteristicvaluechanged', event => {
 							let value = event.target.value;
 							let temp = value.getInt16(0, true) / 100;
 							let hum = value.getUint8(2);
-							let vbat = value.getUint16(3,true);
+							let vbat = value.byteLength >= 5 ? value.getUint16(3,true) : 0;
 							let tempTempString = "Temp: " + temp + "°C, Humi: " + hum + "%, Bat: "+vbat+" mV";
 							$("tempHumiData").innerHTML = '<hr>'+tempTempString;
 							addClog(tempTempString); });
@@ -1180,6 +1183,7 @@ function miAction() {
 			if (isMhoC303Device()) {
 				mhoC303Enabled = true;
 				renderMhoC303Controls();
+				if (mhoBatteryCharacteristic) readMhoBattery();
 				return;
 			}
 			miAuthorization()
@@ -2367,7 +2371,7 @@ function doConnect() {
 					addLog("Detected Mi device, no Telink OTA service");
 					setStatus("Detected Mi device, no Telink OTA service");
 					if (bluetoothDevice.name && bluetoothDevice.name.startsWith("MHO-C303")) {
-						$("custcfg").innerHTML = '<hr>Detected MHO-C303, loading BLE controls...';
+						$("custcfg").innerHTML = '<hr>Detected MHO-C303, initializing Mi-style controls...';
 						return miAction();
 					}
 				}
@@ -2415,7 +2419,7 @@ function doConnect() {
 				//fsignota = "sign_mj6_2.1.1a.bin";
 				miAction();
 			} else if (bluetoothDevice.name && bluetoothDevice.name.startsWith("MHO-C303")) {
-				$("custcfg").innerHTML = '<hr>Detected MHO-C303, loading BLE controls...';
+				$("custcfg").innerHTML = '<hr>Detected MHO-C303, initializing Mi-style controls...';
 				miAction();
 			} else {
 				$("custcfg").innerHTML = '<hr>When doing an activation here the device is needed to be activated in the Mi app again when wanted to use there.<br><button type="button" onclick="sendRegister();">Do Activation</button> <button type="button" onclick="keyMiLogin();">Login</button><br>Device known id:<br><input size="40" type="text" id="known_id" value=""><br>Mi Token:<br><input size="40" type="text" id="mi_token" value=""><br>Mi Bind Key:<br><input size="40" type="text" id="mi_bind_key" value=""><br><br>';
