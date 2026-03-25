@@ -52,8 +52,8 @@
 | 44 | 0x022C | [ZG-303Z](https://pvvx.github.io/ZG-303Z) - HOBEIAN ZG-303Z Tuya ZigBee Soil moisture sensor | [BLE](https://github.com/pvvx/ATC_MiThermometer) & [ZigBee](https://github.com/pvvx/ZigbeeTLc) | 'Sonoff', 'ZG-303Z-z' |
 | 45 | 0x022D | [ZBEACON-TH01](https://pvvx.github.io/Zbeacon-TH01) | [BLE](https://github.com/pvvx/ATC_MiThermometer) & [ZigBee](https://github.com/pvvx/ZigbeeTLc) | 'ZBeacon', 'TH01-z' |
 | 46 | 0x022E | [ZBEACON-MC](https://pvvx.github.io/Zbeacon-MC) | [BLE](https://github.com/pvvx/ATC_MiThermometer) & [ZigBee](https://github.com/pvvx/ZigbeeTLc) | 'ZBeacon', 'MC-z' |
-
-* [Telegram: New devices & develops](https://t.me/pvvx_new_ble_zigbee_devices).
+| 47 | 0x022F | [ZBEACON-TH01-v2.0](https://pvvx.github.io/Zbeacon-TH01-v2.0) | [BLE](https://github.com/pvvx/ATC_MiThermometer) & [ZigBee](https://github.com/pvvx/ZigbeeTLc) | 'ZBeacon', 'TH01-2-z' |
+| 48 | 0x0230 | [TY0201](https://pvvx.github.io/TY0201_TZ3000_bjawzodf) | [ZigBee](https://github.com/pvvx/ZigbeeTLc) | 'Tuya', 'TY0201-z' |
 
 ### All [ZigBeeTLc](https://github.com/pvvx/ZigbeeTLc):
 
@@ -65,6 +65,73 @@
 When changing the name, it is saved in Flash.
 It is reset to default only by holding down the button (more than 15 seconds).
 
+
+## TlsrSmartSwitch
+
+Alternative firmwares for Smart Switch on the TLSR825x/TLSR8656 chipset.
+
+[TlsrSmartSwitch](https://github.com/pvvx/TlsrSmartSwitch)
+
+ManufacturerCode: 60000
+
+ManufacturerName: "Telink-pvvx"
+
+|  Zigbee Image Type | Name | U/I Sensor | T Sensor | Ext.Switch |
+|--|--|--|--|--|
+| 0x0100 | EM0SW1   |        |         |      |
+| 0x0101 | EM0SW2   |        |         | Yes  |
+| 0x0102 | EM0SW1T  |        | MY18B20 |      |
+| 0x0103 | EM0SW2T  |        | MY18B20 | Yes  |
+| 0x0106 | EM0SW1TS |        | MY18B20 |      |
+| 0x0107 | EM0SW2TS |        | MY18B20 | Yes  |
+| 0x0108 | EM1SW1   | BL0942 |         |      |
+| 0x0109 | EM1SW2   | BL0942 |         | Yes  |
+| 0x010a | EM1SW1T  | BL0942 | MY18B20 |      |
+| 0x010b | EM1SW2T  | BL0942 | MY18B20 | Yes  |
+| 0x010e | EM1SW1TS | BL0942 | MY18B20 |      |
+| 0x010f | EM1SW2TS | BL0942 | MY18B20 | Yes  |
+| 0x0110 | EM8SW1   | BL0937 |         |      |
+| 0x0111 | EM8SW2   | BL0937 |         | Yes  |
+| 0x0112 | EM8SW1T  | BL0937 | MY18B20 |      |
+| 0x0113 | EM8SW2T  | BL0937 | MY18B20 | Yes  |
+| 0x0116 | EM8SW1TS | BL0937 | MY18B20 |      |
+| 0x0117 | EM8SW2TS | BL0937 | MY18B20 | Yes  |
+
+
+## TlsrRepeater 
+
+Zigbee repeater (router) based on TLSR825x chipsets
+
+[TlsrRepeater](https://github.com/pvvx/TlsrRepeater)
+
+ManufacturerCode: 60000
+
+ManufacturerName: "Telink-pvvx"
+
+|  Zigbee Image Type | Name | Device |
+|--|--|--|
+| 0x0201 | ZG807Z | [HOBEIAN:CK-BL702-ROUTER-01](https://pvvx.github.io/ZG-807Z/) |
+
+
+## TLB2Z 
+
+BLE Advertisements 3 Repeater into Zigbee on TLRS825x.
+
+The device supports of up to three BLE hygrometers with relaying in the Zigbee protocol. 
+
+[TLB2Z](https://github.com/pvvx/TLB2Z)
+
+ManufacturerCode: 0x1141
+
+ManufacturerName: "B2Z"
+
+|  Zigbee Image Type | Name | Device |
+|--|--|--|
+| 0x2210 | TB03F-bz | TB-03F-kit |
+| 0x222b | REL-BZ01 | [TS0001_TZ3000](https://pvvx.github.io/TS0001_TZ3000/) |
+
+
+--
 
 ## Web files for projects:
 
@@ -108,23 +175,23 @@ It is reset to default only by holding down the button (more than 15 seconds).
 
 [RemoteShutter](https://pvvx.github.io/RemoteShutter) - BLE, OTP
 
-[TS0001_TZ3000](https://pvvx.github.io/TS0001_TZ3000) - Tuya ZigBee "DIY Smart Switch"
+[TS0001_TZ3000_TZ3000_gjrubzje](https://pvvx.github.io/TS0001_TZ3000) - Tuya ZigBee "DIY Smart Switch"
 
 [TS0001_TZ3000_fdxihpp7](https://pvvx.github.io/TS0001_TZ3000_fdxihpp7) - Tuya ZigBee "Mini Smart Switch"
 
-[DS01 zbeacon](https://pvvx.github.io/DS01_zbeacon) TS0003 _TZ3000_gohcgzj7 - Tuya ZigBee Door Window Sensor
+[DS01 zbeacon: TS0003_TZ3000_gohcgzj7](https://pvvx.github.io/DS01_zbeacon) - Tuya ZigBee Door Window Sensor
 
-[TS0201_TZ3000](https://pvvx.github.io/TS0201_TZ3000) - Tuya ZigBee Thermo-Hygrometer
+[TS0201_TZ3000_xr3htd96, _TZ3000_qsefbina](https://pvvx.github.io/TS0201_TZ3000) - Tuya ZigBee Thermo-Hygrometer
 
-[TS0201_TZ3000_TH03](https://pvvx.github.io/TS0201_TZ3000_TH03) - Tuya ZigBee TH03 LCD Thermo-Hygrometer
+[TH03: TS0201_TZ3000_gohcgzj7, _TZ3000_bguser20](https://pvvx.github.io/TS0201_TZ3000_TH03) - Tuya ZigBee TH03 LCD Thermo-Hygrometer
 
-[TS0202_TZ3000](https://pvvx.github.io/TS0202_TZ3000) - Tuya ZigBee ZP01 IR-Motion sensor
+[TS0202_TZ3000_lf56vpxj](https://pvvx.github.io/TS0202_TZ3000) - Tuya ZigBee ZP01 IR-Motion sensor
 
-[TS0207_TZ3000](https://pvvx.github.io/TS0207_TZ3000) - Tuya ZigBee "Wireless Water Detector"
+[TS0207_TZ3000_kstbkt6a](https://pvvx.github.io/TS0207_TZ3000) - Tuya ZigBee "Wireless Water Detector"
 
-[TS0601_TZE200 ZTH01](https://pvvx.github.io/TS0601_TZE200_zth01) - Tuya ZigBee ZTH01 Thermo-Hygrometer 
+[ZTH01: TS0601_TZE200](https://pvvx.github.io/TS0601_TZE200_zth01) - Tuya ZigBee ZTH01 Thermo-Hygrometer 
 
-[TS0601_TZE200 ZTH02](https://pvvx.github.io/TS0601_TZE200_zth02) - Tuya ZigBee ZTH02 Thermo-Hygrometer 
+[ZTH02: TS0601_TZE200_9yapgbuv](https://pvvx.github.io/TS0601_TZE200_zth02) - Tuya ZigBee ZTH02 Thermo-Hygrometer 
 
 [TS0601_TZE204](https://pvvx.github.io/TS0601_TZE204) - Tuya ZigBee ZTH05 Thermo-Hygrometer
 
@@ -134,7 +201,7 @@ It is reset to default only by holding down the button (more than 15 seconds).
 
 [THB2](https://pvvx.github.io/THB2) - Tuya BLE Temperature & Humidity Sensor
 
-[TH03Z](https://pvvx.github.io/TH03Z) - Tuya BLE Temperature & Humidity Sensor
+[TH03Z: TS0201_TZ3000_dowj6gyi, _TZ3000_qsefbina](https://pvvx.github.io/TH03Z) - Tuya Zigbee Temperature & Humidity Sensor
 
 [TH05 v1.4](https://pvvx.github.io/TH-05) - Tuya BLE Temperature & Humidity Sensor
 
@@ -146,13 +213,13 @@ It is reset to default only by holding down the button (more than 15 seconds).
 
 [RSH-GW018_DM](https://pvvx.github.io/RSH-GW018_DM) - Tuya Smart Gateway WiFi-BLE-Zigbee
 
-[PLANT-MON](https://pvvx.github.io/PLANT-MON) - Tuya BLE "Plant monitor"
+[PLANT-MON: ECF-SGS01-A](https://pvvx.github.io/PLANT-MON) - Tuya BLE "Plant monitor"
 
-[LKTMZL02](https://pvvx.github.io/LKTMZL02) - Tuya BLE Temperature & Humidity Sensor (LCD)
+[LKTMZL02: TS0201_TZ3210_ncw88jfq](https://pvvx.github.io/LKTMZL02) - Tuya Zigbee Temperature & Humidity Sensor (LCD)
 
 [ZSS-ZK-THL](https://pvvx.github.io/ZSS-ZK-THL) - E-ink Moes ZigBee "Smart Brightness Thermometer"
 
-[CB3S](https://pvvx.github.io/TS0041_TZ3000_fa9mlvja) - Tuya ZigBee "Smart Button"
+[CB3S: TS0041_TZ3000_fa9mlvja](https://pvvx.github.io/TS0041_TZ3000_fa9mlvja) - Tuya ZigBee "Smart Button"
 
 [HS09: TS0201_TZ3000_1twfmkcc](https://pvvx.github.io/TS0201_TZ3000_1twfmkcc) - Tuya Zigbee "Smart Humidity Sensor"
 
@@ -190,9 +257,17 @@ It is reset to default only by holding down the button (more than 15 seconds).
 
 [Zbeacon-TS0001](https://pvvx.github.io/Zbeacon-TS0001) - Tuya "Zigbee Smart Switch" + RF433
 
+[ZBEACON-TH01-v2.0](https://pvvx.github.io/Zbeacon-TH01-v2.0) - Tuya ZigBee "Temp & Humidity Sensor" 
+
+[HOBEIAN CK-BL702-ROUTER-01(7018)](https://pvvx.github.io/ZG-807Z) - Zigbee Repeater
+
+[TY0201_TZ3000_bjawzodf](https://pvvx.github.io/TY0201_TZ3000_bjawzodf) - Tuya ZigBee "Temp & Humidity Sensor"
+
 ---
 
 [UBIA](https://github.com/pvvx/UBIA)
 
 [ADV-repeater, ATC Temperatyre/Humidity Trigger](https://github.com/pvvx/AdScanerTrg)
 
+
+* [Telegram: New devices & develops](https://t.me/pvvx_new_ble_zigbee_devices).
