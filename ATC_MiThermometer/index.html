@@ -1,29 +1,317 @@
-<!DOCTYPE html>
-<html>
-  <head><meta charset="utf-8">
-  <title>Xiaomi Mijia (LYWSD03MMC)</title>
-  </head>
-  <body>
-	<div style="height: auto; width: auto; text-align: center;">
-	<h2>Xiaomi Mijia (LYWSD03MMC)</h2><hr>
-	<div>
-	<img src="img/LYWSD03MMC.jpg" style="max-width:100%;"><br>
-	<a href="https://github.com/pvvx/ATC_MiThermometer">Project repo</a><br>
-	<hr>
-<a href="Advertising.html">Advertising</a> <a href="DevPoint.html">DevPoint</a><br>
-<a href="GraphAtc.html">GraphAtc</a> <a href="GraphAtc1.html">GraphAtc1</a> <a href="GraphAtc2.html">GraphAtc2</a><br>
-<a href="GraphMemo.html">GraphMemo</a> <a href="GraphMemoOriginal.html">GraphMemoOriginal</a><br>
-<a href="TelinkMiFlasher.html">TelinkMiFlasher</a> <a href="TelinkOTA.html">TelinkOTA</a> <a href="USBCOMFlashTx.html">USBCOMFlashTx</a><br><br>
-<a href="OriginalPower.html">OriginalPower</a> <a href="CustPower.html">CustPower</a><br><hr>
-Xiaomi LYWSD03MMC HW: B1.4<br>
-<img src="img/XiaomiLYWSD03MMC_B14_1.jpg" style="max-width:100%;">
-<img src="img/XiaomiLYWSD03MMC_B14_2.jpg" style="max-width:100%;"><br>
-Xiaomi LYWSD03MMC HW: B1.5<br>
-<img src="img/XiaomiLYWSD03MMC_B15_1.jpg" style="max-width:100%;">
-<img src="img/XiaomiLYWSD03MMC_B15_2.jpg" style="max-width:100%;"><br>
-Xiaomi LYWSD03MMC HW: B1.6<br>
-<img src="img/XiaomiLYWSD03MMC_B16_1.jpg" style="max-width:100%;">
-<img src="img/XiaomiLYWSD03MMC_B16_2.jpg" style="max-width:100%;"><br>
-	</div>
-  </body>
-</html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>MHO-C303 Clock sync</title>
+  <meta name="viewport" content="width=480">
+</head>
+
+<body>
+<h1>MHO-C303 Clock sync </h1>
+
+<h2>MiaoMiaoCe Thermometer Temperature Humidity Sensor Smart E-Link INK LCD Screen BT4.0 Digital clock Moisture Meter</h2>
+<img src="./mho-c303-img.webp" width="300">
+
+<fieldset>
+  <legend>Time sync:</legend>
+  <label for="zone">Time zone:</label>
+  <input type="number" id="zone" name="zone" min="-12" max="14" value="0"><br>
+  <label for="30minOffset">Add 30min offset:</label>
+  <input type="checkbox" id="30minOffset" name="30minOffset"><br>
+  <button onclick="updateTime(event)">Update time</button>
+</fieldset>
+
+<fieldset>
+  <legend>Update unit:</legend>
+  <input type="radio" id="c" name="unit" value="0" checked="">
+  <label for="c">C</label><br>
+  <input type="radio" id="f" name="unit" value="1">
+  <label for="f">F</label><br>
+  <button onclick="updateUnit(event)">Update units</button>
+</fieldset>
+
+<fieldset>
+  <legend>Update mode:</legend>
+  <input type="radio" id="time_mode" name="mode" value="1" checked="">
+  <label for="time_mode">Primary time</label><br>
+  <input type="radio" id="temp_mode" name="mode" value="2">
+  <label for="temp_mode">Primary temp</label><br>
+  <button onclick="updateMode(event)">Update mode</button>
+</fieldset>
+
+<fieldset>
+  <legend>Update alarm:</legend>
+  <input type="radio" id="alarm_off" name="alarm" value="0" checked="">
+  <label for="alarm_off">Off</label><br>
+  <input type="radio" id="alarm_on" name="alarm" value="1">
+  <label for="alarm_on">On</label><br>
+  <button onclick="updateAlarm(event)">Update alarm</button>
+</fieldset>
+
+<fieldset>
+  <legend>Battery level:</legend>
+  <button onclick="readBattery(event)">Read battery level</button>
+</fieldset>
+
+<fieldset>
+  <legend>Enviroment data:</legend>
+  <div id="env_data"></div>
+  <button onclick="readEnv(event)">Read</button>
+</fieldset>
+
+<fieldset id="log-fieldset">
+  <legend>Console:</legend>
+  <div id="console"></div>
+</fieldset>
+
+<br><br>
+<p>
+  <b>Based on code snippets from: </b>
+  </p><ul>
+    <li><a href="https://saso5.github.io/LYWSD02-clock-sync/" target="_blank" rel="noopener">LYWSD02 clock sync</a>
+    </li>
+	</ul>
+  <br>
+
+  <br>
+<p></p>
+
+<p>Use chrome developers tools for connection issues <a href="chrome://bluetooth-internals/#devices/">chrome://bluetooth-internals/#devices/</a></p>
+
+<script>
+
+const TIME_SERVICE = 'ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6';
+const TIME = 'ebe0ccb7-7a0a-4b0c-8a1a-6ff2997da3a6';
+const UNIT = 'ebe0ccbe-7a0a-4b0c-8a1a-6ff2997da3a6';
+const MODE = 'ebe0ccd5-7a0a-4b0c-8a1a-6ff2997da3a6';
+const BATT = 'ebe0ccc4-7a0a-4b0c-8a1a-6ff2997da3a6';
+const ENV = 'ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6';
+const ALARM ='ebe0cce1-7a0a-4b0c-8a1a-6ff2997da3a6';
+
+setTimeZone();
+
+function setTimeZone() {
+  let offset = new Date().getTimezoneOffset();
+  document.getElementById('zone').value = -(parseInt(offset/60));
+}
+
+function updateTime(event) {
+  moveLog(event);
+  getCharecteristics(TIME_SERVICE, TIME)
+    .then(function (characteristic) {
+	  log('Writting time value...')
+      return characteristic.writeValue(getCurrentTime());
+    })
+    .then(function () {
+      log('Time updated.');
+    })
+    .catch(function (error) {
+      log(error);
+    });
+}
+
+function updateUnit(event) {
+  moveLog(event);
+  let unitValue = parseInt(document.querySelector('input[name="unit"]:checked').value);
+
+  let charPromise = getCharecteristics(TIME_SERVICE, UNIT);
+
+  let readPromise = charPromise.then(c=>c.readValue());
+  
+  Promise.all([charPromise, readPromise])
+    .then(function([characteristic, value]) {
+      let oldValue = value.getUint8(0);
+      log('Writting unit value (' + oldValue + ' -> ' + unitValue + ')...')
+    
+      let buffer = new ArrayBuffer(1);
+      new DataView(buffer).setUint8(0, unitValue);
+
+      return characteristic.writeValue(buffer);
+    }).then(function() {
+      log('Unit updated');
+    }).catch(function (error) {
+      log(error);
+    });
+}
+
+function updateAlarm(event) {
+  moveLog(event);
+  let unitValue = parseInt(document.querySelector('input[name="alarm"]:checked').value);
+
+  let charPromise = getCharecteristics(TIME_SERVICE, ALARM);
+
+  //let readPromise = charPromise.then(c=>c.readValue());
+  
+  Promise.all([charPromise])
+    .then(function([characteristic]) {
+      log('Writting alarm value (' + unitValue + ')...')
+    
+      let buffer = new ArrayBuffer(1);
+      new DataView(buffer).setUint8(0, unitValue);
+
+      return characteristic.writeValue(buffer);
+    }).then(function() {
+      log('Alarm updated');
+    }).catch(function (error) {
+      log(error);
+    });
+}
+
+function updateMode(event) {
+  moveLog(event);
+  let unitValue = parseInt(document.querySelector('input[name="mode"]:checked').value);
+
+  let charPromise = getCharecteristics(TIME_SERVICE, MODE);
+
+  let readPromise = charPromise.then(c=>c.readValue());
+  
+  Promise.all([charPromise, readPromise])
+    .then(function([characteristic, value]) {
+      let oldValue = value.getUint8(0);
+      log('Writting mode value (' + oldValue + ' -> ' + unitValue + ')...')
+    
+      let buffer = new ArrayBuffer(1);
+      new DataView(buffer).setUint8(0, unitValue);
+
+      return characteristic.writeValue(buffer);
+    }).then(function() {
+      log('Mode updated');
+    }).catch(function (error) {
+      log(error);
+    });
+}
+
+function readBattery(event) {
+  moveLog(event);
+  let charPromise = getCharecteristics(TIME_SERVICE, BATT);
+
+  let readPromise = charPromise.then(c=>c.readValue());
+  Promise.all([charPromise, readPromise])
+    .then(function([characteristic, value]) {
+      let oldValue = value.getUint8(0);
+      log('Battery level is (' + oldValue + ')...');
+    }).catch(function (error) {
+      log(error);
+    });
+}
+
+var myCharacteristic;
+function readEnv(event) {
+  moveLog(event);
+  let stop = null;
+  if (myCharacteristic == null)
+  {
+    stop = Promise.resolve(true);
+  }
+  else
+  {
+    stop = myCharacteristic.stopNotifications();
+  }
+  stop.then(_ => {
+    myCharacteristic = null;
+    let charPromise = getCharecteristics(TIME_SERVICE, ENV);
+
+    charPromise.then(characteristic => {
+      myCharacteristic = characteristic;
+      return myCharacteristic.startNotifications().then(_ => {
+        log('> Notifications started');
+        myCharacteristic.addEventListener('characteristicvaluechanged',
+            handleNotifications);
+      });
+    })
+    .catch(error => {
+      log('Argh! ' + error);
+    });
+  });
+}
+
+function handleNotifications() {
+  let value = event.target.value;
+  let temp = value.getUint16(0, true);
+  let hum = value.getUint8(2)
+  let bat = null;
+  if (value.byteLength>=5)
+  {
+    bat = value.getUint16(3, true);
+  }
+  let message = "temp: " + temp/100 + "°C hum: " + hum + "% batt: " + bat + " mV";
+  let element = document.getElementById('env_data');
+  console.log(message);
+  element.innerHTML = message;
+  
+  
+}
+
+function getCharecteristics(service, characteristic) {
+  if (!('bluetooth' in navigator)) {
+    throw 'Bluetooth API not supported.';
+  }
+  
+  let options = {
+    acceptAllDevices: true,
+    optionalServices: [service]
+  };
+  
+  return navigator.bluetooth.requestDevice(options)
+    .then(function (device) {
+	  log('Connecting...')
+      return device.gatt.connect();
+    })
+    .then(function (server) {
+	  log('Getting primary service...')
+	  return server.getPrimaryService(service);
+    })
+    .then(function (service) {
+	  log('Getting characteristic...')
+      return service.getCharacteristic(characteristic);
+    });
+}
+
+function log(message) {
+  let element = document.getElementById('console');
+  console.log(message);
+  element.innerHTML = message;
+}
+
+function getCurrentTime() {
+  let is30MinOffset = document.getElementById('30minOffset').checked;
+  let dateTime = parseInt(Date.now()/1000) + (is30MinOffset ? 30 * 60 : 0);
+
+  let buffer = new ArrayBuffer(5);
+  new DataView(buffer).setUint32(0, dateTime, true /* littleEndian */);
+  
+  let zone = parseInt(document.getElementById('zone').value);
+  
+  
+  new DataView(buffer).setUint8(4, zone);
+  
+  return buffer;
+}
+
+function moveLog(event)
+{
+	const clickedFieldset = event.currentTarget.closest('fieldset');
+	const logFieldset = document.getElementById('log-fieldset');
+
+      // 5. Move the log fieldset to be immediately after the clicked fieldset
+      if (clickedFieldset) {
+        // The .after() method automatically removes the element
+        // from its old position and inserts it in the new one.
+        clickedFieldset.after(logFieldset);
+      }
+}
+
+</script>
+<style>
+body {
+  max-width: 400px;
+  margin: 0 auto;
+  font-family: Lato,'Helvetica Neue',Arial,Helvetica,sans-serif;
+}
+fieldset > * {
+  margin: 5px;
+}
+img {
+	margin: auto;
+}
+</style>
+
+
+</body></html>
