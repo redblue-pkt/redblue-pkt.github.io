@@ -2074,8 +2074,6 @@ function miAuthorization() {
 							cfg.hver = 0;
 							// $("ldfile").hidden = false;
 						}
-					} else if (bluetoothDevice.name.substr(0,8) == 'MHO-C303') {
-						cfg.hver = 8;
 					} else if (bluetoothDevice.name.substr(0,8) == 'MHO-C401') {
 						cfg.hver = 8;
 						if(!confirm('MHO-C401 with a new hardware version?'))
@@ -2209,7 +2207,7 @@ function doConnect() {
 			else if (services[i].uuid == "0000181a-0000-1000-8000-00805f9b34fb") devIdEnabled = true;
 			else if (services[i].uuid == "0000ffe0-0000-1000-8000-00805f9b34fb") devTest = true;
 			else if (services[i].uuid == "0000fcd2-0000-1000-8000-00805f9b34fb") bthomeEnabled = true;
-			else if (services[i].uuid == "0000180a-0000-1000-8000-00805f9b34fb") devInfEnabled = true;
+			else if (services[i].uuid == "0000180a-0000-1000-8000-00805f9b34fb") devInfEnabled = true; // Device Information Service
 		}
 		if(otaEnabled) {
 			return gattServer.getPrimaryService('00010203-0405-0607-0809-0a0b0c0d1912');
@@ -2232,7 +2230,7 @@ function doConnect() {
 				if (miEnabled) {
 					addLog("Detected Mi device, no Telink OTA service");
 					setStatus("Detected Mi device, no Telink OTA service");
-					if (bluetoothDevice.name.substr(0,10) == "LYWSD02MMC") {
+					if (bluetoothDevice.name.substr(0,8) == "MHO-C303") {
 					    hwver_id = 49;
 					    //fwmaxsize = MAX_BLE_OTA_SIZE;
 						$("custcfg").innerHTML = '<hr>When doing an activation here the device is needed to be activated in the Mi app again when wanted to use there.<br><button type="button" onclick="sendRegister();">Do Activation</button> <button type="button" onclick="keyMiLogin();">Login</button><br>Device known id:<br><input size="40" type="text" id="known_id" value=""><br>Mi Token:<br><input size="40" type="text" id="mi_token" value=""><br>Mi Bind Key:<br><input size="40" type="text" id="mi_bind_key" value=""><br><br>';
