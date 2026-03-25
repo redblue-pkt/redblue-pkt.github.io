@@ -11,8 +11,6 @@
 //BLE values
 var bluetoothDevice, gattServer, Theservice, writeCharacteristic;
 var ServiceMain, writeCharacteristicSpeed = null, nitifiyCharTemp, time_char, enc_main, enc_10, enc_19;
-var mhoUnitCharacteristic = null, mhoModeCharacteristic = null, mhoBatteryCharacteristic = null, mhoEnvCharacteristic = null, mhoAlarmCharacteristic = null;
-var mhoC303Enabled = false, mhoEnvNotifyStarted = false;
 //Firmware values
 const MAX_BLE_OTA_SIZE = 0x20000; // 128KB
 const MAX_EXT_OTA_SIZE = 0x34000; // 208KB
@@ -1007,110 +1005,10 @@ function getMiClock() {
 		showMiClock(value);
 	});
 }
-
-function isMhoC303Device() {
-	return !!(bluetoothDevice && bluetoothDevice.name && bluetoothDevice.name.startsWith("MHO-C303"));
-}
-
-function renderMhoC303Controls() {
-	if (!isMhoC303Device()) return;
-	let offset = new Date().getTimezoneOffset();
-	let zone = -(parseInt(offset / 60));
-	let html = `
-		<hr><b>MHO-C303</b><br>
-		Time zone: <input type="number" id="mho_zone" min="-12" max="14" value="${zone}" style="width:70px">
-		<label><input type="checkbox" id="mho_30minOffset"> Add 30min offset</label>
-		<button type="button" onclick="setMhoClock();">Sync time</button><br><br>
-		Alarm time: <input type="number" id="mho_alarm_hour" min="0" max="23" value="7" style="width:60px"> :
-		<input type="number" id="mho_alarm_minute" min="0" max="59" value="0" style="width:60px">
-		<label><input type="radio" name="mho_alarm" value="0" checked> Off</label>
-		<label><input type="radio" name="mho_alarm" value="1"> On</label>
-		<button type="button" onclick="sendMhoAlarm();">Send alarm</button><br>
-		<small>Alarm enable/disable is wired. Hour/minute fields are kept in the UI, but the BLE field for alarm time is still not identified in the current public sources.</small><br><br>
-		Battery: <span id="mho_batt">?</span> <button type="button" onclick="readMhoBattery();">Read battery</button><br>
-	`;
-	$("custcfg").innerHTML = html;
-}
-
-function getMhoCurrentTimeBuffer() {
-	let is30MinOffset = $("mho_30minOffset") && $("mho_30minOffset").checked;
-	let dateTime = parseInt(Date.now() / 1000) + (is30MinOffset ? 30 * 60 : 0);
-	let buffer = new ArrayBuffer(5);
-	let view = new DataView(buffer);
-	view.setUint32(0, dateTime, true);
-	let zone = parseInt($("mho_zone") ? $("mho_zone").value : 0, 10);
-	view.setUint8(4, zone & 0xff);
-	return buffer;
-}
-
-function syncMhoBatteryLabel(value) {
-	let batt = value.getUint8(0);
-	if ($('mho_batt')) $('mho_batt').innerHTML = batt + '%';
-	addLog('MHO-C303 battery level: ' + batt + '%');
-}
-
-function setMhoClock() {
-	if (!clockCharacteristic) {
-		addLog('MHO-C303 time characteristic not found');
-		return;
-	}
-	clockCharacteristic.writeValue(getMhoCurrentTimeBuffer()).then(_ => {
-		addLog('MHO-C303 time updated');
-	}).catch(handleError);
-}
-
-function setMhoUnit() {
-	if (!mhoUnitCharacteristic) {
-		addLog('MHO-C303 unit characteristic not found');
-		return;
-	}
-	let unitValue = parseInt(document.querySelector('input[name="mho_unit"]:checked').value, 10);
-	let buffer = new Uint8Array([unitValue]);
-	mhoUnitCharacteristic.writeValue(buffer).then(_ => {
-		addLog('MHO-C303 unit updated to ' + (unitValue ? 'F' : 'C'));
-	}).catch(handleError);
-}
-
-function setMhoMode() {
-	if (!mhoModeCharacteristic) {
-		addLog('MHO-C303 mode characteristic not found');
-		return;
-	}
-	let modeValue = parseInt(document.querySelector('input[name="mho_mode"]:checked').value, 10);
-	let buffer = new Uint8Array([modeValue]);
-	mhoModeCharacteristic.writeValue(buffer).then(_ => {
-		addLog('MHO-C303 mode updated to ' + modeValue);
-	}).catch(handleError);
-}
-
-function sendMhoAlarm() {
-	if (!mhoAlarmCharacteristic) {
-		addLog('MHO-C303 alarm characteristic not found');
-		return;
-	}
-	let alarmValue = parseInt(document.querySelector('input[name="mho_alarm"]:checked').value, 10);
-	let hour = $("mho_alarm_hour") ? parseInt($("mho_alarm_hour").value, 10) : 0;
-		let minute = $("mho_alarm_minute") ? parseInt($("mho_alarm_minute").value, 10) : 0;
-	let buffer = new Uint8Array([alarmValue]);
-	mhoAlarmCharacteristic.writeValue(buffer).then(_ => {
-		addLog('MHO-C303 alarm state updated to ' + alarmValue + ' (requested ' + hour + ':' + ('0' + minute).slice(-2) + ')');
-		addAlog('Alarm hour/minute write is not mapped yet in the public MHO-C303 BLE sources. Only ON/OFF was sent.');
-	}).catch(handleError);
-}
-
-function readMhoBattery() {
-	if (!mhoBatteryCharacteristic) {
-		addLog('MHO-C303 battery characteristic not found');
-		return;
-	}
-	mhoBatteryCharacteristic.readValue().then(value => {
-		syncMhoBatteryLabel(value);
-	}).catch(handleError);
-}
 //var micharacteristics;
 function miAction() {
 	writeCharacteristicSpeed = null;
-	return gattServer.getPrimaryService('ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6')
+	gattServer.getPrimaryService('ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6')
 		.then(service => {
 			addClog("Found MiMain service");
 			ServiceMain = service;
@@ -1129,15 +1027,12 @@ function miAction() {
 					ServiceMain.getCharacteristic(characteristics[i].uuid).then ( characteristic =>
 					{ addClog('Found MiTemp characteristic');
 						nitifiyCharTemp = characteristic;
-						mhoEnvCharacteristic = characteristic;
-						if (mhoEnvNotifyStarted) return;
-						mhoEnvNotifyStarted = true;
 						return nitifiyCharTemp.startNotifications().then(() => {
 							nitifiyCharTemp.addEventListener('characteristicvaluechanged', event => {
 							let value = event.target.value;
 							let temp = value.getInt16(0, true) / 100;
 							let hum = value.getUint8(2);
-							let vbat = value.byteLength >= 5 ? value.getUint16(3,true) : 0;
+							let vbat = value.getUint16(3,true);
 							let tempTempString = "Temp: " + temp + "°C, Humi: " + hum + "%, Bat: "+vbat+" mV";
 							$("tempHumiData").innerHTML = '<hr>'+tempTempString;
 							addClog(tempTempString); });
@@ -1148,43 +1043,11 @@ function miAction() {
 					ServiceMain.getCharacteristic(characteristics[i].uuid).then ( characteristic =>
 					{ addClog('Found MiClock characteristic');
 						clockCharacteristic = characteristic;
-						if (!isMhoC303Device()) {
-							return clockCharacteristic.readValue().then(value => {
-								showMiClock(value);
-							});
-						}
+						return clockCharacteristic.readValue().then(value => {
+							showMiClock(value);
+						});
 					});
 				}
-				else if (characteristics[i].uuid == "ebe0ccbe-7a0a-4b0c-8a1a-6ff2997da3a6") {
-					ServiceMain.getCharacteristic(characteristics[i].uuid).then(characteristic => {
-						addClog('Found MHO unit characteristic');
-						mhoUnitCharacteristic = characteristic;
-					});
-				}
-				else if (characteristics[i].uuid == "ebe0ccd5-7a0a-4b0c-8a1a-6ff2997da3a6") {
-					ServiceMain.getCharacteristic(characteristics[i].uuid).then(characteristic => {
-						addClog('Found MHO mode characteristic');
-						mhoModeCharacteristic = characteristic;
-					});
-				}
-				else if (characteristics[i].uuid == "ebe0ccc4-7a0a-4b0c-8a1a-6ff2997da3a6") {
-					ServiceMain.getCharacteristic(characteristics[i].uuid).then(characteristic => {
-						addClog('Found MHO battery characteristic');
-						mhoBatteryCharacteristic = characteristic;
-					});
-				}
-				else if (characteristics[i].uuid == "ebe0cce1-7a0a-4b0c-8a1a-6ff2997da3a6") {
-					ServiceMain.getCharacteristic(characteristics[i].uuid).then(characteristic => {
-						addClog('Found MHO alarm characteristic');
-						mhoAlarmCharacteristic = characteristic;
-					});
-				}
-			}
-			if (isMhoC303Device()) {
-				mhoC303Enabled = true;
-				renderMhoC303Controls();
-				if (mhoBatteryCharacteristic) readMhoBattery();
-				return;
 			}
 			miAuthorization()
 		}).catch(handleError);
@@ -2350,44 +2213,41 @@ function doConnect() {
 			return gattServer.getPrimaryService('00010203-0405-0607-0809-0a0b0c0d1912');
 		} else {
 			addAlog("Not found Telink OTA service!");
-			connectTrys = 1000;
 			if(bthomeEnabled) {
+				connectTrys = 1000;
 				addLog("Detected THBdevice");
 				setStatus("Detected <a href='https://github.com/pvvx/THB2' target='_blank'>THBdevice</a>");
 				addLog('GitHub: <a href="https://github.com/pvvx/THB2" target="_blank">THB2</a> or Use: <a href="https://pvvx.github.io/THB2/web/PHY62x2BTHome.html" target="_blank">PHY62x2BTHome</a>');
 		    	return getDevVersion(devInfEnabled).then(_ => {
 				if (devinfo.hrstr) addLog('Hardware Revision String: ' + devinfo.hrstr);
 				if (devinfo.srstr) addLog('Software Revision String: ' + devinfo.srstr);
-				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr);
-				return null;
-			});
-			}
-
-			return getDevVersion(devInfEnabled).then(_ => {
+				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr); });
+			} else {
+			    getDevVersion(devInfEnabled).then(_ => {
 				if (devinfo.hrstr) addLog('Hardware Revision String: ' + devinfo.hrstr);
 				if (devinfo.srstr) addLog('Software Revision String: ' + devinfo.srstr);
-				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr);
+				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr); });
 				if (miEnabled) {
 					addLog("Detected Mi device, no Telink OTA service");
 					setStatus("Detected Mi device, no Telink OTA service");
-					if (bluetoothDevice.name && bluetoothDevice.name.startsWith("MHO-C303")) {
-						$("custcfg").innerHTML = '<hr>Detected MHO-C303, initializing Mi-style controls...';
-						return miAction();
+					if (bluetoothDevice.name.substr(0,10) == "LYWSD02MMC" || bluetoothDevice.name.substr(0,8) == "MHO-C303") {
+					    hwver_id = 49;
+					    //fwmaxsize = MAX_BLE_OTA_SIZE;
+						$("custcfg").innerHTML = '<hr>When doing an activation here the device is needed to be activated in the Mi app again when wanted to use there.<br><button type="button" onclick="sendRegister();">Do Activation</button> <button type="button" onclick="keyMiLogin();">Login</button><br>Device known id:<br><input size="40" type="text" id="known_id" value=""><br>Mi Token:<br><input size="40" type="text" id="mi_token" value=""><br>Mi Bind Key:<br><input size="40" type="text" id="mi_bind_key" value=""><br><br>';
+						miAction();
 					}
 				}
-				return null;
-			});
+			}
 		}
+		connectTrys = 1000;
+		return;
 	}).then(service => {
-		if (!service) return null;
 		if(otaEnabled) {
 			addClog("Found Telink OTA service");
 			Theservice = service;
 		}
-		if (!Theservice) return null;
 		return Theservice.getCharacteristic('00010203-0405-0607-0809-0a0b0c0d2b12');
 	}).then(characteristic => {
-		if (!characteristic) return;
 		addClog("Found Telink OTA write characteristic");
 		writeCharacteristic = characteristic;
 
@@ -2398,13 +2258,11 @@ function doConnect() {
 		if (miEnabled) {
 			addLog("Detected Mi device");
 			setStatus("Detected Mi device");
-			if (bluetoothDevice.name && bluetoothDevice.name.startsWith("LYWSD02MMC")) {
+			if (bluetoothDevice.name.substr(0,10) == "LYWSD02MMC" || bluetoothDevice.name.substr(0,8) == "MHO-C303") {
 			    hwver_id = 49;
 			    fwmaxsize = MAX_BLE_OTA_SIZE;
-			} else if (bluetoothDevice.name && bluetoothDevice.name.startsWith("MHO-C303")) {
-			    hwver_id = 49;
-			    fwmaxsize = MAX_BLE_OTA_SIZE;
-			} else if (bluetoothDevice.name && bluetoothDevice.name.startsWith("MJWSD05MMC")) {
+			} else
+			if (bluetoothDevice.name.substr(0,10) == "MJWSD05MMC") {
 				fwmaxsize = MAX_EXT_OTA_SIZE;
 			}
 			if ((bluetoothDevice.name.substr(0,10) == "LYWSD03MMC") && (devinfo.frstr.substr(0,10) == "2.1.1_0159")) {
@@ -2417,9 +2275,6 @@ function doConnect() {
 			    fwmaxsize = MAX_EXT_OTA_SIZE;
 			    hwver_id = 13;
 				//fsignota = "sign_mj6_2.1.1a.bin";
-				miAction();
-			} else if (bluetoothDevice.name && bluetoothDevice.name.startsWith("MHO-C303")) {
-				$("custcfg").innerHTML = '<hr>Detected MHO-C303, initializing Mi-style controls...';
 				miAction();
 			} else {
 				$("custcfg").innerHTML = '<hr>When doing an activation here the device is needed to be activated in the Mi app again when wanted to use there.<br><button type="button" onclick="sendRegister();">Do Activation</button> <button type="button" onclick="keyMiLogin();">Login</button><br>Device known id:<br><input size="40" type="text" id="known_id" value=""><br>Mi Token:<br><input size="40" type="text" id="mi_token" value=""><br>Mi Bind Key:<br><input size="40" type="text" id="mi_bind_key" value=""><br><br>';
