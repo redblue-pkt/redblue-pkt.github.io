@@ -2230,10 +2230,12 @@ function doConnect() {
 				if (miEnabled) {
 					addLog("Detected Mi device, no Telink OTA service");
 					setStatus("Detected Mi device, no Telink OTA service");
-					if (bluetoothDevice.name.substr(0,10) == "LYWSD02MMC" || bluetoothDevice.name.substr(0,8) == "MHO-C303") {
+					if (bluetoothDevice.name.substr(0,10) == "LYWSD02MMC") {
 					    hwver_id = 49;
 					    //fwmaxsize = MAX_BLE_OTA_SIZE;
 						$("custcfg").innerHTML = '<hr>When doing an activation here the device is needed to be activated in the Mi app again when wanted to use there.<br><button type="button" onclick="sendRegister();">Do Activation</button> <button type="button" onclick="keyMiLogin();">Login</button><br>Device known id:<br><input size="40" type="text" id="known_id" value=""><br>Mi Token:<br><input size="40" type="text" id="mi_token" value=""><br>Mi Bind Key:<br><input size="40" type="text" id="mi_bind_key" value=""><br><br>';
+						miAction();
+					} else if (bluetoothDevice.name.substr(0,8) == "MHO-C303") {
 						miAction();
 					}
 				}
@@ -2258,7 +2260,7 @@ function doConnect() {
 		if (miEnabled) {
 			addLog("Detected Mi device");
 			setStatus("Detected Mi device");
-			if (bluetoothDevice.name.substr(0,10) == "LYWSD02MMC" || bluetoothDevice.name.substr(0,8) == "MHO-C303") {
+			if (bluetoothDevice.name.substr(0,10) == "LYWSD02MMC") {
 			    hwver_id = 49;
 			    fwmaxsize = MAX_BLE_OTA_SIZE;
 			} else
