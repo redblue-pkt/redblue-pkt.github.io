@@ -1109,7 +1109,7 @@ function readMhoBattery() {
 //var micharacteristics;
 function miAction() {
 	writeCharacteristicSpeed = null;
-	gattServer.getPrimaryService('ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6')
+	return gattServer.getPrimaryService('ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6')
 		.then(service => {
 			addClog("Found MiMain service");
 			ServiceMain = service;
@@ -2346,39 +2346,44 @@ function doConnect() {
 			return gattServer.getPrimaryService('00010203-0405-0607-0809-0a0b0c0d1912');
 		} else {
 			addAlog("Not found Telink OTA service!");
+			connectTrys = 1000;
 			if(bthomeEnabled) {
-				connectTrys = 1000;
 				addLog("Detected THBdevice");
 				setStatus("Detected <a href='https://github.com/pvvx/THB2' target='_blank'>THBdevice</a>");
 				addLog('GitHub: <a href="https://github.com/pvvx/THB2" target="_blank">THB2</a> or Use: <a href="https://pvvx.github.io/THB2/web/PHY62x2BTHome.html" target="_blank">PHY62x2BTHome</a>');
 		    	return getDevVersion(devInfEnabled).then(_ => {
 				if (devinfo.hrstr) addLog('Hardware Revision String: ' + devinfo.hrstr);
 				if (devinfo.srstr) addLog('Software Revision String: ' + devinfo.srstr);
-				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr); });
-			} else {
-			    getDevVersion(devInfEnabled).then(_ => {
+				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr);
+				return null;
+			});
+			}
+
+			return getDevVersion(devInfEnabled).then(_ => {
 				if (devinfo.hrstr) addLog('Hardware Revision String: ' + devinfo.hrstr);
 				if (devinfo.srstr) addLog('Software Revision String: ' + devinfo.srstr);
-				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr); });
+				if (devinfo.frstr) addLog('Firmware Revision String: ' + devinfo.frstr);
 				if (miEnabled) {
 					addLog("Detected Mi device, no Telink OTA service");
 					setStatus("Detected Mi device, no Telink OTA service");
 					if (bluetoothDevice.name && bluetoothDevice.name.startsWith("MHO-C303")) {
 						$("custcfg").innerHTML = '<hr>Detected MHO-C303, loading BLE controls...';
-						miAction();
+						return miAction();
 					}
 				}
-			}
+				return null;
+			});
 		}
-		connectTrys = 1000;
-		return;
 	}).then(service => {
+		if (!service) return null;
 		if(otaEnabled) {
 			addClog("Found Telink OTA service");
 			Theservice = service;
 		}
+		if (!Theservice) return null;
 		return Theservice.getCharacteristic('00010203-0405-0607-0809-0a0b0c0d2b12');
 	}).then(characteristic => {
+		if (!characteristic) return;
 		addClog("Found Telink OTA write characteristic");
 		writeCharacteristic = characteristic;
 
