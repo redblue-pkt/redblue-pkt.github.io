@@ -81,10 +81,6 @@ var device_new_id = "00626c742e332e31323976" + makeRandomID(6) + "673030"; // 0+
 
 var $ = function(id) { return document.getElementById(id);}
 function resetVariables() {
-	clearTimeout(cgd1AlarmTimer);
-	cgd1AlarmRequest = null;
-	cgd1AlarmLoaded = -1;
-	cgd1AlarmSaved = false;
 	fwmaxsize = MAX_BLE_OTA_SIZE;
 	blockCount = 0;
 	busy = false;
@@ -254,7 +250,7 @@ const hw_version_str = [
 'ZG204ZL',
 'ZG204ZV',
 'TS0201_WING',
-'DIY-SCD41', '', '', '', '', 'CGD1'];
+'DIY-SCD41'];
 
 const id_sensor_str = [
 "None",
@@ -1111,10 +1107,6 @@ function CustomBlkParse(value) {
 	if(len == 0) return;
 	len--;	// size from cmd
 	let blkid = value.getUint8(0);
-	if(blkid == 0x90 && hwver_id == 58) {
-		cgd1AlarmNotify(value);
-		return;
-	}
 	if(devTest) {
 		s = 'Custom (0xffe1) Notifications id: 0x'+hex(blkid,2)+' ['+bytesToHex(value.buffer.slice(1))+']';
 		addAlog(s);
@@ -1861,8 +1853,6 @@ function getTestCharacteristic() {
 function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
-	if(hwver_id == 58)
-		is += '<button type="button" onclick="FirmwareUpgrade();">Custom Firmware: CGD1_v60.bin</button><br>';
 	$("ldfile").hidden = false;
 	if(hwver_id != null) {
 		if(otafiles.loaded && otafiles.version) {
@@ -2840,10 +2830,6 @@ function FirmwareZigbee() {
 	}
 }
 function FirmwareUpgrade() {
-	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1_v60.bin', location.href).href, getFirmwareArray, '');
-		return;
-	}
 	if(hwver_id != null) {
 		let fn = otafiles.custom[hwver_id];
 		addAlog("Load firmware file '"+fn+"'...");
@@ -3117,162 +3103,6 @@ function lcd_clock() {
 	addClog("Send cmd (60): Set LCD data");
 	settingsCharacteristics.writeValue(lcdb).then(_ => {addClog('Send data ok'); addLog("Send 'Send clock data on LCD' ok");});
 }
-var cgd1AlarmRequest = null;
-var cgd1AlarmTimer = 0;
-var cgd1AlarmLoaded = -1;
-var cgd1AlarmSaved = false;
-function cgd1AlarmControls() {
-	let s = '<div style="margin:8px 0"><b>Alarm</b> <select id="cgd1_alarm" onchange="cgd1AlarmRead()">';
-	for(let i = 0; i < 16; i++)
-		s += '<option value="' + i + '">' + (i + 1) + '</option>';
-	s += '</select> <label><input type="checkbox" id="cgd1_alarm_enabled"> On</label> ';
-	s += '<input type="time" id="cgd1_alarm_time" value="07:00" aria-label="Alarm time"> ';
-	s += '<label><input type="checkbox" id="cgd1_alarm_snooze"> Snooze (10 min)</label><br>';
-	s += '<span title="No days selected: one-shot alarm">Repeat (none: once):</span> ';
-	['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((day, i) => {
-		s += '<label style="display:inline-block;margin-right:7px"><input type="checkbox" id="cgd1_day' + i + '"> ' + day + '</label>';
-	});
-	s += '<button type="button" id="cgd1_alarm_read" onclick="cgd1AlarmRead()">Get</button> ';
-	s += '<button type="button" id="cgd1_alarm_save" onclick="cgd1AlarmSave()" disabled>Set</button> ';
-	s += '<button type="button" onclick="sendCustomSetting(&quot;900501&quot;)">Test</button> ';
-	s += '<button type="button" onclick="sendCustomSetting(&quot;900500&quot;)">Stop</button> ';
-	return s + '<span id="cgd1_alarm_status" role="status"></span></div>';
-}
-function cgd1AlarmFinish(text) {
-	clearTimeout(cgd1AlarmTimer);
-	cgd1AlarmRequest = null;
-	if(!$('cgd1_alarm')) return;
-	$('cgd1_alarm').disabled = false;
-	$('cgd1_alarm_read').disabled = false;
-	$('cgd1_alarm_save').disabled = cgd1AlarmLoaded !== Number($('cgd1_alarm').value);
-	$('cgd1_alarm_status').textContent = text;
-}
-function cgd1AlarmSend(data) {
-	if(hwver_id !== 58 || cgd1AlarmRequest || !$('cgd1_alarm')) return;
-	const request = {sub: data[1], index: data[2]};
-	cgd1AlarmRequest = request;
-	$('cgd1_alarm').disabled = true;
-	$('cgd1_alarm_read').disabled = true;
-	$('cgd1_alarm_save').disabled = true;
-	$('cgd1_alarm_status').textContent = data[1] === 3 ? 'Reading…' : 'Saving…';
-	cgd1AlarmTimer = setTimeout(() => {
-		if(cgd1AlarmRequest === request) {
-			cgd1AlarmLoaded = -1;
-			cgd1AlarmFinish('No response; Get to retry');
-		}
-	}, 5000);
-	mainCharSend(data.map(n => hex(n, 2)).join(''), settingsCharacteristics).catch(() => {
-		if(cgd1AlarmRequest === request) {
-			cgd1AlarmLoaded = -1;
-			cgd1AlarmFinish('Send failed');
-		}
-	});
-}
-function cgd1AlarmRead(saved = false) {
-	if(cgd1AlarmRequest) return;
-	cgd1AlarmSaved = saved;
-	cgd1AlarmLoaded = -1;
-	cgd1AlarmSend([0x90, 3, Number($('cgd1_alarm').value)]);
-}
-function cgd1AlarmSave() {
-	const index = Number($('cgd1_alarm').value);
-	const time = /^(\d{2}):(\d{2})$/.exec($('cgd1_alarm_time').value);
-	const snooze = $('cgd1_alarm_snooze').checked ? (cfg.ver >= 0x60 ? 1 : 10) : 0;
-	if(cgd1AlarmLoaded !== index || !time || Number(time[1]) > 23 || Number(time[2]) > 59) {
-		$('cgd1_alarm_status').textContent = 'Get alarm first; enter a valid time';
-		return;
-	}
-	let days = 0;
-	for(let i = 0; i < 7; i++)
-		if($('cgd1_day' + i).checked) days |= 1 << i;
-	cgd1AlarmSend([0x90, 4, index, Number($('cgd1_alarm_enabled').checked), Number(time[1]), Number(time[2]), days, snooze]);
-}
-function cgd1AlarmNotify(value) {
-	if(value.byteLength < 3 || !$('cgd1_alarm')) return;
-	const sub = value.getUint8(1), error = value.getUint8(2);
-	if((sub === 1 || sub === 2) && $('cgd1_settings_status')) {
-		cgd1SettingsNotify(value);
-		return;
-	}
-	if(sub === 5) {
-		if(error) $('cgd1_alarm_status').textContent = 'Audio error: ' + error;
-		return;
-	}
-	if(!cgd1AlarmRequest || cgd1AlarmRequest.sub !== sub) return;
-	if(error) {
-		cgd1AlarmLoaded = -1;
-		cgd1AlarmSaved = false;
-		cgd1AlarmFinish(['', 'Invalid alarm', 'Device busy; retry', 'Flash write failed', 'RTC invalid; Set Time first'][error] || 'Alarm error: ' + error);
-		return;
-	}
-	if(sub === 4) {
-		cgd1AlarmFinish('Saved');
-		cgd1AlarmRead(true);
-	} else if(sub === 3 && value.byteLength >= 9 && value.getUint8(3) === cgd1AlarmRequest.index) {
-		const index = value.getUint8(3), enabled = value.getUint8(4), hour = value.getUint8(5);
-		const minute = value.getUint8(6), days = value.getUint8(7), snooze = value.getUint8(8);
-		if(enabled > 1 || hour > 23 || minute > 59 || days > 127 || snooze > (cfg.ver >= 0x60 ? 1 : 30)) {
-			cgd1AlarmFinish('Invalid alarm response');
-			return;
-		}
-		$('cgd1_alarm_enabled').checked = !!enabled;
-		$('cgd1_alarm_time').value = String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
-		$('cgd1_alarm_snooze').checked = !!snooze;
-		for(let i = 0; i < 7; i++)
-			$('cgd1_day' + i).checked = !!(days & (1 << i));
-		cgd1AlarmLoaded = index;
-		cgd1AlarmFinish(cgd1AlarmSaved ? 'Saved' : '');
-		cgd1AlarmSaved = false;
-	}
-}
-
-var cgd1ClockSettings = null;
-function cgd1SettingsControls() {
-	return '<div style="margin:8px 0">Temperature: <select id="cfg_flg_cf"><option value="0">°C</option><option value="1">°F</option></select> ' +
-		'<label><input type="checkbox" id="cgd1_h12"> 12-hour clock (AM/PM)</label> ' +
-		'<label>Volume <input type="number" id="cgd1_volume" min="0" max="5" style="width:3em"></label> ' +
-		'<label><input type="checkbox" id="cfg_scr_off"> Screen Off</label> ' +
-		'<button type="button" onclick="cgd1SettingsRead()">Get</button> ' +
-		'<button type="button" id="cgd1_settings_save" onclick="cgd1SettingsSave()" disabled>Set</button> ' +
-		'<span id="cgd1_settings_status" role="status"></span></div>';
-}
-function cgd1SettingsRead() {
-	cgd1ClockSettings = null;
-	$('cgd1_settings_save').disabled = true;
-	mainCharSend('9001', settingsCharacteristics).catch(() => {
-		$('cgd1_settings_status').textContent = 'Read failed';
-	});
-}
-function cgd1SettingsSave() {
-	const volume = Number($('cgd1_volume').value);
-	if(!cgd1ClockSettings || $('cgd1_volume').value === '' || !Number.isInteger(volume) || volume < 0 || volume > 5) return;
-	const data = [0x90, 2, cgd1ClockSettings.brightness, volume, cgd1ClockSettings.language, 0, 0, Number($('cgd1_h12').checked)];
-	$('cgd1_settings_save').disabled = true;
-	$('cgd1_settings_status').textContent = 'Saving…';
-	mainCharSend(data.map(n => hex(n, 2)).join(''), settingsCharacteristics).then(() => {
-		SendCustomConfig();
-	}).catch(() => {
-		$('cgd1_settings_status').textContent = 'Send failed; Get to retry';
-	});
-}
-function cgd1SettingsNotify(value) {
-	const sub = value.getUint8(1), error = value.getUint8(2);
-	if(error) {
-		$('cgd1_settings_status').textContent = 'Settings error: ' + error;
-		$('cgd1_settings_save').disabled = !cgd1ClockSettings;
-		return;
-	}
-	if(sub === 2) {
-		$('cgd1_settings_status').textContent = 'Saved';
-		cgd1SettingsRead();
-	} else if(sub === 1 && value.byteLength >= 11 && value.getUint8(4) <= 10 && value.getUint8(5) <= 5 && value.getUint8(6) <= 3) {
-		cgd1ClockSettings = {brightness: value.getUint8(4), language: value.getUint8(6)};
-		$('cgd1_volume').value = value.getUint8(5);
-		$('cgd1_h12').checked = !!(value.getUint8(10) & 1);
-		$('cgd1_settings_save').disabled = false;
-	}
-}
-
 function setDevTime() {
 	let time = Date.now()/1000;
 	time -= (new Date()).getTimezoneOffset() * 60;
@@ -3835,10 +3665,6 @@ function zbdeviceConfig() {
 	$("cfg_meas_int").value = String(cfg.measure_interval);
 }
 function CustomConfig() {
- clearTimeout(cgd1AlarmTimer);
- cgd1AlarmRequest = null;
- cgd1AlarmLoaded = -1;
- cgd1AlarmSaved = false;
  menuUpgrade();
  let is = '';
  if(cfg.ver >= 0x10) {
@@ -3904,12 +3730,6 @@ function CustomConfig() {
 	is += ', Tx measures: <input title="When connected, start transferring measurements" type="checkbox" id="cfg_flg_tx_meas">';
   } else {
 	is += '<br><hr><br><b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
-	if(hwver_id == 58) {
-		is += 'Show battery: <input type="checkbox" id="cfg_flg_show_batt"> ';
-		is += '<button type="button" onclick="setDevTime();">Set Time</button> <button type="button" onclick="sendCustomSetting(&quot;23&quot;);">Get Time</button>';
-		is += cgd1AlarmControls();
-		is += cgd1SettingsControls();
-	}
 	//is += 'Sensor in "LowPower mode": <input title="Sensor measurements in Low Power mode" type="checkbox" id="cfg_flg_lp_meas">';
 	is += 'Tx measures: <input title="When connected, start transferring measurements" type="checkbox" id="cfg_flg_tx_meas">';
   }
@@ -4220,13 +4040,6 @@ function CustomConfig() {
   }
 	InfoIntervals();
 	cfg.enable = true;
-	if(hwver_id == 58) {
-		$("cfg_scr_off").checked = !!(cfg.flg2 & 0x80);
-		$("cfg_flg_cf").value = (cfg.flg & 16) ? 1 : 0;
-		$("cfg_flg_show_batt").checked = !!(cfg.flg & 32);
-		cgd1AlarmRead();
-		cgd1SettingsRead();
-	}
  } else
 	$("custcfg").innerHTML = '<hr><br><br>Unsupported device software version! Custom ATC version >= 1.0!<br><br>';
 }
@@ -4303,10 +4116,6 @@ function SendCustomConfig() {
 		cfg.flg2 += (($("bt5_flags").checked) ? 0x20 : 0);
 		cfg.flg2 += (($("longrange_flags").checked) ? 0x40 : 0);
  }
-	if(hwver_id == 58) {
-		cfg.flg = (cfg.flg & ~48) | (Number($("cfg_flg_cf").value) ? 16 : 0) | ($("cfg_flg_show_batt").checked ? 32 : 0);
-		cfg.flg2 = (cfg.flg2 & ~128) | ($("cfg_scr_off").checked ? 128 : 0);
-	}
 	if(cfg.ver >= 0x20)	cfg.av_meas_mem = parseInt($("cfg_av_meas_mem").value);
 	if(cfg.ver < 0x47) {
 		cfg.temp_offset = Math.round(10.0 * parseFloat($("cfg_tmp_off").value));
