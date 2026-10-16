@@ -6,9 +6,11 @@ let html='';const elements={custcfg:{}};
 Object.defineProperty(elements.custcfg,'innerHTML',{get(){return html},set(s){html=s;for(const m of s.matchAll(/id="([^"]+)"/g))elements[m[1]]={};}});
 const ctx={$: id=>{if(!elements[id])throw Error('missing element '+id);return elements[id];},menuUpgrade(){},InfoIntervals(){},cfg:{ver:0x67,flg:0x24,flg2:0x10,services:0xffff,hver:58,av_meas_mem:0,temp_offset:10,humi_offset:6,lcd_tint:49,advertising_interval:40,measure_interval:4,rf_tx_power:63,connect_latency:49},hwver_id:58,ext:{},trg:{},pincode:{},dnm:{},cmf:{},mikeys:{},cgd1Refresh(){},cgd1ReadSettings(){},cgd1ReadAlarm(){}};
 vm.createContext(ctx);vm.runInContext(page.slice(page.indexOf('function cgd1AlarmPanel()'),page.indexOf('async function cgd1ReadAlarm()')),ctx);vm.runInContext(code,ctx);ctx.CustomConfig();
+if(html.includes('cfg_flg_comfort') || html.includes('cfg_flg_show_batt')) throw Error('CGD1 has irrelevant controls');
 if(html.includes('extsmiley')||html.includes('clockDateTime'))throw Error('unwanted generic test/date panel');
+if(!(html.indexOf('cgd1Volume') < html.indexOf('>Test sound</button>') && html.indexOf('>Stop</button>') < html.indexOf('cgd1PcmFile'))) throw Error('Test/Stop must be below volume and above file');
 if(html.indexOf('cgd1AlarmEnabled')<html.indexOf('Get Time</button>'))throw Error('alarm above time controls');
-if(!html.includes('Get Time</button><br>Alarm'))throw Error('alarm not below time row');
+if(!html.includes('Get Time</button><br>Temperature:'))throw Error('alarm not below time row');
 
 for(const [before, after] of [['cgd1AlarmSlot','cgd1Volume'],['cgd1Volume','cgd1PcmFile'],['cgd1PcmFile','cgd1UploadProgress'],['cgd1UploadProgress','cgd1UploadButton']]) {
  if(html.indexOf(before) >= html.indexOf(after)) throw Error('Wrong row order '+before);

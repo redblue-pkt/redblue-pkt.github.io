@@ -1506,6 +1506,7 @@ function CustomBlkParse(value) {
 				$("cbind_key").value = '?';
 		}
 	} else if(blkid == 0x60 && len >= 6) {
+		if(hwver_id == 58) return;
 		s = 'LCD data: '+bytesToHex(value.buffer.slice(1));
 		addAlog(s);
 	} else if(blkid == 0x61 && len >= 1) {
@@ -1877,7 +1878,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v68.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v69.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null) {
@@ -2857,7 +2858,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v68.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v69.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3182,15 +3183,16 @@ function cgd1AlarmPanel() {
 	const toggle = (id, title, on) => '<label>' + title + ' <select id="' + id + '"><option value="0">Off</option><option value="1"' + (on ? ' selected' : '') + '>On</option></select></label> ';
 	const slots = Array.from({length:16}, (_, i) => '<option value="'+i+'">Slot '+i+'</option>').join('');
 	const days = [[0,'Once'],[31,'Mon–Fri'],[96,'Sat–Sun'],[127,'Every day'],[1,'Mon'],[2,'Tue'],[4,'Wed'],[8,'Thu'],[16,'Fri'],[32,'Sat'],[64,'Sun']];
-	return '<br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
+	return '<br>Temperature: <select id="cfg_flg_cf"><option value="0">°C</option><option value="1">°F</option></select> ' +
+		'<label>12-hour clock <input type="checkbox" id="cfg_flg_am_pm"></label><br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
 		toggle('cgd1AlarmEnabled', '', false) + '<input id="cgd1AlarmTime" type="time" value="07:00"> ' +
 		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
 		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button><br>' +
 		'<label>Volume <select id="cgd1Volume"><option value="0">Mute</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label> <button type="button" onclick="cgd1SetVolume()">Apply</button><br>' +
-		'<label>Ringtone <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw"></label> ' +
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> ' +
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
+		'<label>Ringtone <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw"></label><br>' +
 		'<progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span><br>' +
 		'<button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button>';
 }
@@ -3905,6 +3907,7 @@ function zbdeviceConfig() {
   	is = '<hr>Send commands to custom firmware:<br><input type="text" id="cmdTXT" value=""><button type="button" onclick="sendCustomSetting($(&quot;cmdTXT&quot;).value,settingsCharacteristics);">Send</button><br>';
 	is += '<hr><b>Configuration:</b><br>';
 	if((cfg.services & 0x20) != 0) { // SERVICE_SCREEN
+		if(hwver_id != 58)
 		is += 'Temperature: <select id="cfg_flg_cf"><option value="0">°C</option><option value="1">°F</option></select>';
 		is += ' Screen Off: <input title="Screen Off" type="checkbox" id="cfg_scr_off">';
 		is += ' Smiley: <input type="checkbox" id="cfg_flg_comfort"><br><br>';
@@ -3976,12 +3979,13 @@ function CustomConfig() {
 	is += '<br><br><hr><br><b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
 	if(cfg.ver >= 0x43)
 		is += 'Screen Off: <input title="Screen Off" type="checkbox" id="cfg_scr_off"><br><br>';
-	is += 'Temperature: <select id="cfg_flg_cf"><option value="0">°C</option><option value="1">°F</option></select>';
+	if(hwver_id != 58)
+		is += 'Temperature: <select id="cfg_flg_cf"><option value="0">°C</option><option value="1">°F</option></select>';
 	if((hwver_id == 9) || (hwver_id == 12))  {
 		is += '&nbsp;&nbsp;12-hour clock:<input type="checkbox" id="cfg_flg_am_pm">&nbsp;&nbsp;T&H 2 decimal places<input type="checkbox" id="cfg_flg_x100">';
 	  if(hwver_id == 12)
 		is += '<br><br>Date DD/MM: <input type="checkbox" id="cfg_flg3_ddmm">';
-	} else if (hwver_id == 49 || hwver_id == 58) {
+	} else if (hwver_id == 49) {
 		is += '&nbsp;&nbsp;12-hour clock:<input type="checkbox" id="cfg_flg_am_pm">' + (hwver_id == 49 ? ' , Show WeekDay: <input type="checkbox" id="cfg_flg3_weekday">' : '')
 	}
 	is += '<br><br>';
@@ -3993,11 +3997,12 @@ function CustomConfig() {
 	//	is += 'Show: <select id="cfg_smiley"><option value="0">&nbsp;&nbsp;&nbsp;</option><option value="1">&nbsp;^_^&nbsp;</option><option value="2">&nbsp;-&and;-&nbsp;</option><option value="3">&nbsp;&Delta;&#9651;&Delta;&nbsp;</option><option value="4">(&nbsp;&nbsp;&nbsp;)</option><option value="5">(^_^)</option><option value="6">(-&and;-)</option><option value="7">(&Delta;&#9651;&Delta;)</option></select>';
 	else if(hwver_id != 58)
 		is += 'Smiley: <select id="cfg_smiley"><option value="0">&nbsp;&nbsp;&nbsp;</option><option value="1">&nbsp;^_^&nbsp;</option><option value="2">&nbsp;-&and;-&nbsp;</option><option value="3">&nbsp;&Delta;&#9651;&Delta;&nbsp;</option><option value="4">(&nbsp;&nbsp;&nbsp;)</option><option value="5">(^_^)</option><option value="6">(-&and;-)</option><option value="7">(&Delta;&#9651;&Delta;)</option></select>';
-	is += ', Comfort: <input type="checkbox" id="cfg_flg_comfort">';
+	if(hwver_id != 58)
+		is += ', Comfort: <input type="checkbox" id="cfg_flg_comfort">';
 	if((hwver_id == 9) || (hwver_id == 12)) {
 	  if(cfg.ver > 0x48)
 		is += ', Show WeekDay: <input type="checkbox" id="cfg_flg3_weekday">';
-	} else
+	} else if(hwver_id != 58)
 		is += ', Show battery: <input type="checkbox" id="cfg_flg_show_batt">';
 	if(cfg.ver >= 0x18) {
 		if(!((hwver_id == 9)||(hwver_id == 12)||(hwver_id == 49)||(hwver_id == 58)))
@@ -4185,7 +4190,7 @@ function CustomConfig() {
 	if(cfg.ver >= 0x43)
 		$("cfg_scr_off").checked = (cfg.flg2&0x80) != 0
 	$("cfg_flg_adv_type").value = cfg.flg&3;
-	$("cfg_flg_comfort").checked = (cfg.flg&4) != 0;
+	if(hwver_id != 58) $("cfg_flg_comfort").checked = (cfg.flg&4) != 0;
 	if((hwver_id == 9) || (hwver_id == 12)) {
 		$("cfg_flg_am_pm").checked = (cfg.flg&32) != 0;
 		$("cfg_flg_x100").checked = (cfg.flg&8) != 0;
@@ -4208,7 +4213,7 @@ function CustomConfig() {
 		$("longrange_flags").checked = (cfg.flg2&0x40) != 0;
 	} else {
 		if(hwver_id != 58) $("cfg_flg_blinking").checked = (cfg.flg&8) != 0;
-		$("cfg_flg_show_batt").checked = (cfg.flg&32) != 0;
+		if(hwver_id != 58) $("cfg_flg_show_batt").checked = (cfg.flg&32) != 0;
 		if(hwver_id != 58) $("cfg_smiley").value = cfg.flg2&7;
 		if(cfg.ver == 0x19)
 			$("cfg_flg2_memo").checked = (cfg.flg2&8) != 0;
@@ -4340,7 +4345,7 @@ async function SendCustomConfig() {
   if(hwver_id < 15 || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 49) || (hwver_id == 52) || (hwver_id == 58)) {
 	if(hwver_id == 49) {
 		cfg.flg = ($("cfg_flg_adv_type").value & 3)+
-		(($("cfg_flg_comfort").checked) ? 4 : 0) +
+		(hwver_id == 58 ? (cfg.flg & 4) : ($("cfg_flg_comfort").checked ? 4 : 0)) +
 		(($("cfg_flg_show_batt").checked != 0) ? 8 : 0) +
 		(($("cfg_flg_cf").value != 0) ? 16 : 0) +
 		(($("cfg_flg_am_pm").checked) ? 32 : 0) +
@@ -4355,7 +4360,7 @@ async function SendCustomConfig() {
 		cfg.temp_offset = ($("cfg_flg3_weekday").checked) ? 128 : 0;
 	} else if(hwver_id == 9 || hwver_id == 12) {
 		cfg.flg = ($("cfg_flg_adv_type").value & 3)+
-		(($("cfg_flg_comfort").checked) ? 4 : 0) +
+		(hwver_id == 58 ? (cfg.flg & 4) : ($("cfg_flg_comfort").checked ? 4 : 0)) +
 		(($("cfg_flg_x100").checked != 0) ? 8 : 0) +
 		(($("cfg_flg_cf").value != 0) ? 16 : 0) +
 		(($("cfg_flg_am_pm").checked) ? 32 : 0) +
@@ -4374,10 +4379,10 @@ async function SendCustomConfig() {
 		}
 	} else {
 		cfg.flg = ($("cfg_flg_adv_type").value & 3)+
-		(($("cfg_flg_comfort").checked) ? 4 : 0) +
+		(hwver_id == 58 ? (cfg.flg & 4) : ($("cfg_flg_comfort").checked ? 4 : 0)) +
 		(hwver_id == 58 ? (cfg.flg & 8) : ($("cfg_flg_blinking").checked ? 8 : 0)) +
 		(($("cfg_flg_cf").value != 0) ? 16 : 0) +
-		(($("cfg_flg_show_batt").checked) ? 32 : 0) +
+		(hwver_id == 58 ? (cfg.flg & 32) : ($("cfg_flg_show_batt").checked ? 32 : 0)) +
 		(($("cfg_flg_tx_meas").checked) ? 64 : 0) +
 		(($("cfg_flg_lp_meas").checked) ? 128 : 0);
 		cfg.flg2 = hwver_id == 58 ? (cfg.flg2 & 7) : (parseInt($("cfg_smiley").value) & 7);
