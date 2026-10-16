@@ -1877,7 +1877,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v67.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v68.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null) {
@@ -2857,7 +2857,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v67.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v68.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3169,27 +3169,43 @@ function cgd1Join(...parts) {
 	for(let p of parts) { out.set(p, offset); offset += p.length; }
 	return out;
 }
+let cgd1Refreshing = false;
+async function cgd1Refresh() {
+	if(cgd1Refreshing) return;
+	cgd1Refreshing = true;
+	try {
+		await cgd1ReadSettings();
+		await cgd1ReadAlarm();
+	} finally { cgd1Refreshing = false; }
+}
 function cgd1AlarmPanel() {
-	return '<br>Alarm <label><input id="cgd1AlarmEnabled" type="checkbox"> on</label> ' +
-		'<input id="cgd1AlarmTime" type="time" value="07:00" title="Alarm time, 24-hour format"> ' +
-		'<label>Snooze <input id="cgd1AlarmSnooze" type="checkbox" checked></label> ' +
-		'<label>Master <input id="cgd1AlarmMaster" type="checkbox" checked></label> ' +
-		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button> ' +
-		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).then(()=>addLog(\'Test playback started (uploaded PCM, or 1 kHz diagnostic tone if none is installed)\')).catch(e=>addLog(e.message))" title="Uploaded PCM, or diagnostic 1 kHz tone when no ringtone has been uploaded">Test sound</button> ' +
-		'<button type="button" onclick="cgd1Call(5,new Uint8Array([0])).then(()=>addLog(\'Sound stopped\')).catch(e=>addLog(e.message))">Stop</button><br>Days: ' +
-		'<label><input class="cgd1AlarmDay" type="checkbox" value="1" checked>Mon</label> <label><input class="cgd1AlarmDay" type="checkbox" value="2" checked>Tue</label> <label><input class="cgd1AlarmDay" type="checkbox" value="4" checked>Wed</label> <label><input class="cgd1AlarmDay" type="checkbox" value="8" checked>Thu</label> <label><input class="cgd1AlarmDay" type="checkbox" value="16" checked>Fri</label> <label><input class="cgd1AlarmDay" type="checkbox" value="32" checked>Sat</label> <label><input class="cgd1AlarmDay" type="checkbox" value="64" checked>Sun</label> ' +
-		'<label>Volume <select id="cgd1Volume"><option value="0">Mute</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label> <button type="button" onclick="cgd1SetVolume()">Apply audio/time</button> ' +
-		'<label>Ringtone <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw"></label> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button> <progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span>';
+	const toggle = (id, title, on) => '<label>' + title + ' <select id="' + id + '"><option value="0">Off</option><option value="1"' + (on ? ' selected' : '') + '>On</option></select></label> ';
+	const slots = Array.from({length:16}, (_, i) => '<option value="'+i+'">Slot '+i+'</option>').join('');
+	const days = [[0,'Once'],[31,'Mon–Fri'],[96,'Sat–Sun'],[127,'Every day'],[1,'Mon'],[2,'Tue'],[4,'Wed'],[8,'Thu'],[16,'Fri'],[32,'Sat'],[64,'Sun']];
+	return '<br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
+		toggle('cgd1AlarmEnabled', '', false) + '<input id="cgd1AlarmTime" type="time" value="07:00"> ' +
+		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
+		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
+		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button><br>' +
+		'<label>Volume <select id="cgd1Volume"><option value="0">Mute</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label> <button type="button" onclick="cgd1SetVolume()">Apply</button><br>' +
+		'<label>Ringtone <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw"></label> ' +
+		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> ' +
+		'<button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
+		'<progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span><br>' +
+		'<button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button>';
 }
 async function cgd1ReadAlarm() {
 	try {
-		let index = 0;
+		let index = Number($('cgd1AlarmSlot').value);
 		let r = await cgd1Call(3, new Uint8Array([index]));
-		$('cgd1AlarmEnabled').checked = !!r.getUint8(4);
+		$('cgd1AlarmEnabled').value = String(r.getUint8(4));
 		$('cgd1AlarmTime').value = String(r.getUint8(5)).padStart(2,'0')+':'+String(r.getUint8(6)).padStart(2,'0');
 		let days = r.getUint8(7);
-		document.querySelectorAll('.cgd1AlarmDay').forEach(el => el.checked = !!(days & Number(el.value)));
-		$('cgd1AlarmSnooze').checked = !!r.getUint8(8);
+		const menu = $('cgd1AlarmDays');
+		if(!Array.from(menu.options).some(option => Number(option.value) === days))
+			menu.add(new Option('Custom', String(days)));
+		menu.value = String(days);
+		$('cgd1AlarmSnooze').value = r.getUint8(8) ? '1' : '0';
 		addLog('CGD1 alarm slot '+(index+1)+' read');
 	} catch(error) { addLog('CGD1 alarm read: '+error.message); }
 }
@@ -3198,14 +3214,14 @@ async function cgd1WriteAlarm() {
 		const t = $('cgd1AlarmTime').value.split(':').map(Number);
 		if(t.length !== 2 || !Number.isInteger(t[0]) || !Number.isInteger(t[1]) || t[0] > 23 || t[1] > 59)
 			throw new Error('Enter an alarm time in 24-hour format');
-		let days = 0;
-		document.querySelectorAll('.cgd1AlarmDay:checked').forEach(el => days |= Number(el.value));
-		const enabled = $('cgd1AlarmEnabled').checked ? 1 : 0;
-		const master = $('cgd1AlarmMaster').checked ? 1 : 0;
-		const snooze = $('cgd1AlarmSnooze').checked ? 1 : 0;
-		await cgd1Call(4, new Uint8Array([0, enabled, t[0], t[1], days, snooze]));
+		const index = Number($('cgd1AlarmSlot').value);
+		const days = Number($('cgd1AlarmDays').value);
+		const enabled = Number($('cgd1AlarmEnabled').value);
+		const master = Number($('cgd1AlarmMaster').value);
+		const snooze = Number($('cgd1AlarmSnooze').value);
+		await cgd1Call(4, new Uint8Array([index, enabled, t[0], t[1], days, snooze]));
 		await cgd1Call(7, new Uint8Array([1, master]));
-		const saved = await cgd1Call(3, new Uint8Array([0]));
+		const saved = await cgd1Call(3, new Uint8Array([index]));
 		const armed = await cgd1Call(7, new Uint8Array());
 		if(saved.getUint8(4) !== enabled || saved.getUint8(5) !== t[0] || saved.getUint8(6) !== t[1] ||
 			saved.getUint8(7) !== days || saved.getUint8(8) !== snooze || armed.getUint8(3) !== master)
@@ -3213,8 +3229,7 @@ async function cgd1WriteAlarm() {
 		const runtime = await cgd1Call(0x17, new Uint8Array());
 		if(enabled && master && !runtime.getUint8(3))
 			throw new Error('Date/time is invalid; use the existing Set Time button');
-		const next = runtime.getUint32(12, true);
-		const message = enabled && master ? 'Alarm saved and armed. Next: ' + PVVXClock.format(next).replace('T', ' ') : 'Alarm settings saved; alarm disabled';
+		const message = 'Alarm saved';
 		$('cgd1Status').textContent = message;
 		addLog(message);
 	} catch(error) {
@@ -3224,14 +3239,14 @@ async function cgd1WriteAlarm() {
 }
 async function cgd1SetAlarmMaster() {
 	try {
-		await cgd1Call(7, new Uint8Array([1, $('cgd1AlarmMaster').checked?1:0]));
+		await cgd1Call(7, new Uint8Array([1, Number($('cgd1AlarmMaster').value)]));
 		addLog('CGD1 alarm master updated');
 	} catch(error) { addLog('CGD1 alarm master: '+error.message); }
 }
 async function cgd1ReadAlarmMaster() {
 	try {
 		let r = await cgd1Call(7, new Uint8Array());
-		$('cgd1AlarmMaster').checked = !!r.getUint8(3);
+		$('cgd1AlarmMaster').value = String(r.getUint8(3));
 	} catch(error) { addLog('CGD1 alarm master: '+error.message); }
 }
 async function cgd1ReadSettings() {
@@ -3239,7 +3254,7 @@ async function cgd1ReadSettings() {
 		let r = await cgd1Call(1, new Uint8Array());
 		$('cgd1Volume').value = r.getUint8(5);
 		$('cfg_flg_am_pm').checked = !!(r.getUint8(10) & 1);
-		$('cgd1AlarmMaster').checked = !(r.getUint8(10) & 2);
+		$('cgd1AlarmMaster').value = (r.getUint8(10) & 2) ? '0' : '1';
 	} catch(error) { addLog('CGD1 settings: '+error.message); }
 }
 async function cgd1StoreAudioSettings() {
@@ -3254,7 +3269,7 @@ async function cgd1StoreAudioSettings() {
 async function cgd1SetVolume() {
 	try {
 		await cgd1StoreAudioSettings();
-		$('cgd1Status').textContent = 'Volume and 12/24-hour format saved and verified';
+		$('cgd1Status').textContent = 'OK';
 	} catch(error) {
 		$('cgd1Status').textContent = 'Settings FAILED: ' + error.message;
 	}
@@ -4302,7 +4317,7 @@ function CustomConfig() {
 	$("cfg_rf_tx").value = String(cfg.rf_tx_power);
 	$("cfg_con_lat").value = String((cfg.connect_latency + 1) * 20);
   }
-  if(hwver_id == 58) { cgd1ReadSettings(); cgd1ReadAlarm(); }
+  if(hwver_id == 58) { cgd1Refresh(); }
 	InfoIntervals();
 	cfg.enable = true;
  } else
