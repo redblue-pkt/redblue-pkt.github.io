@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Telink Flasher v14.1</title>
 <script type="text/javascript" src="./core.js"></script>
-<script src="./pvvx-clock.js"></script>
 </head>
 <body>
 <script>
@@ -251,7 +250,7 @@ const hw_version_str = [
 'ZG204ZL',
 'ZG204ZV',
 'TS0201_WING',
-'DIY-SCD41', 'Reserved54', 'Reserved55', 'Reserved56', 'Reserved57', 'CGD1'];
+'DIY-SCD41'];
 
 const id_sensor_str = [
 "None",
@@ -1102,28 +1101,12 @@ function dump(ar, len) {
 	return s;
 }
 var atc_mac, atc_rmac;
-var cgd1Replies = new Map();
 function CustomBlkParse(value) {
 	let len = value.byteLength;
 	let s = '';
 	if(len == 0) return;
 	len--;	// size from cmd
 	let blkid = value.getUint8(0);
-	if(blkid == 0x90 && len >= 2) {
-		let sub = value.getUint8(1);
-		let pending = cgd1Replies.get(sub);
-		if(pending) {
-			clearTimeout(pending.timer);
-			cgd1Replies.delete(sub);
-			if(value.getUint8(2)) {
-				let status = value.getUint8(2), message = ({1:'invalid request',2:'device busy',3:'flash/RTC I/O error',4:'set and verify date/time first'})[status] || ('status '+status);
-				pending.reject(new Error(message));
-			}
-			else pending.resolve(value);
-		}
-		if($('cgd1Status')) $('cgd1Status').textContent = 'CGD1: ' + bytesToHex(value.buffer.slice(0, value.byteLength));
-		return;
-	}
 	if(devTest) {
 		s = 'Custom (0xffe1) Notifications id: 0x'+hex(blkid,2)+' ['+bytesToHex(value.buffer.slice(1))+']';
 		addAlog(s);
@@ -1528,11 +1511,6 @@ function CustomBlkParse(value) {
 		}
 	} else if(blkid == 0x23 && len >= 4) {
 		devtime.cur = value.getUint32(1,true);
-		if($('clockReadback')) {
-			let civil = PVVXClock.format(devtime.cur);
-			$('clockReadback').textContent = 'Device: ' + civil.replace('T', ' ');
-			if(document.activeElement !== $('clockDateTime')) $('clockDateTime').value = civil;
-		}
 		addClog('Device Time: 0x' + hex(devtime.cur,8));
 		let dt = new Date(devtime.cur*1000);
 		addAlog('Device Date: '+(dt.toISOString().slice(0, -1)).replace('T',' '));
@@ -1875,9 +1853,6 @@ function getTestCharacteristic() {
 function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
-	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v66.bin</button><br>';
-	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null) {
 		if(otafiles.loaded && otafiles.version) {
@@ -2855,10 +2830,6 @@ function FirmwareZigbee() {
 	}
 }
 function FirmwareUpgrade() {
-	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v66.bin', location.href).href, getFirmwareArray, '');
-		return;
-	}
 	if(hwver_id != null) {
 		let fn = otafiles.custom[hwver_id];
 		addAlog("Load firmware file '"+fn+"'...");
@@ -3132,159 +3103,19 @@ function lcd_clock() {
 	addClog("Send cmd (60): Set LCD data");
 	settingsCharacteristics.writeValue(lcdb).then(_ => {addClog('Send data ok'); addLog("Send 'Send clock data on LCD' ok");});
 }
-function writeDevTime(time) {
-	return settingsCharacteristics.writeValue(PVVXClock.packet(time)).then(() => {
-		addAlog('Date/time sent (PVVX command 0x23)');
-		return settingsCharacteristics.writeValue(new Uint8Array([0x23]));
-	}).catch(error => addLog('Date/time error: ' + error));
-}
-function cgd1Call(sub, payload) {
-	if(!settingsCharacteristics) return Promise.reject(new Error('Device not connected'));
-	if(cgd1Replies.has(sub)) return Promise.reject(new Error('CGD1 command already pending'));
-	return new Promise((resolve, reject) => {
-		let timer = setTimeout(() => {
-			cgd1Replies.delete(sub);
-			reject(new Error('CGD1 command timeout 0x' + hex(sub, 2)));
-		}, 15000);
-		cgd1Replies.set(sub, {resolve, reject, timer});
-		let data = new Uint8Array(2 + (payload ? payload.length : 0));
-		data[0] = 0x90;
-		data[1] = sub;
-		if(payload) data.set(payload, 2);
-		settingsCharacteristics.writeValue(data).catch(error => {
-			clearTimeout(timer);
-			cgd1Replies.delete(sub);
-			reject(error);
-		});
-	});
-}
-function cgd1Le32(value) {
-	let data = new Uint8Array(4);
-	new DataView(data.buffer).setUint32(0, value >>> 0, true);
-	return data;
-}
-function cgd1Join(...parts) {
-	let size = parts.reduce((n, p) => n + p.length, 0), out = new Uint8Array(size), offset = 0;
-	for(let p of parts) { out.set(p, offset); offset += p.length; }
-	return out;
-}
-function cgd1AlarmPanel() {
-	return ' &nbsp;Alarm <label><input id="cgd1AlarmEnabled" type="checkbox"> on</label> ' +
-		'<input id="cgd1AlarmTime" type="time" value="07:00"> ' +
-		'<label>Snooze <input id="cgd1AlarmSnooze" type="checkbox" checked></label> ' +
-		'<label>Master <input id="cgd1AlarmMaster" type="checkbox" checked></label> ' +
-		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button> ' +
-		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).then(()=>addLog(\'Test playback started (uploaded PCM, or 1 kHz diagnostic tone if none is installed)\')).catch(e=>addLog(e.message))" title="Uploaded PCM, or diagnostic 1 kHz tone when no ringtone has been uploaded">Test sound</button> ' +
-		'<button type="button" onclick="cgd1Call(5,new Uint8Array([0])).then(()=>addLog(\'Sound stopped\')).catch(e=>addLog(e.message))">Stop</button><br>Days: ' +
-		'<label><input class="cgd1AlarmDay" type="checkbox" value="1" checked>Mon</label> <label><input class="cgd1AlarmDay" type="checkbox" value="2" checked>Tue</label> <label><input class="cgd1AlarmDay" type="checkbox" value="4" checked>Wed</label> <label><input class="cgd1AlarmDay" type="checkbox" value="8" checked>Thu</label> <label><input class="cgd1AlarmDay" type="checkbox" value="16" checked>Fri</label> <label><input class="cgd1AlarmDay" type="checkbox" value="32" checked>Sat</label> <label><input class="cgd1AlarmDay" type="checkbox" value="64" checked>Sun</label> ' +
-		'<label>Volume <select id="cgd1Volume"><option value="0">Mute</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label> <button type="button" onclick="cgd1SetVolume()">Apply audio/time</button> ' +
-		'<label>Ringtone PCM8/8kHz <input id="cgd1PcmFile" type="file" accept=".pcm,.raw,application/octet-stream"></label> <button type="button" onclick="cgd1UploadPcm()">Upload</button> <span id="cgd1Status" role="status"></span>';
-}
-async function cgd1ReadAlarm() {
-	try {
-		let index = 0;
-		let r = await cgd1Call(3, new Uint8Array([index]));
-		$('cgd1AlarmEnabled').checked = !!r.getUint8(4);
-		$('cgd1AlarmTime').value = String(r.getUint8(5)).padStart(2,'0')+':'+String(r.getUint8(6)).padStart(2,'0');
-		let days = r.getUint8(7);
-		document.querySelectorAll('.cgd1AlarmDay').forEach(el => el.checked = !!(days & Number(el.value)));
-		$('cgd1AlarmSnooze').checked = !!r.getUint8(8);
-		addLog('CGD1 alarm slot '+(index+1)+' read');
-	} catch(error) { addLog('CGD1 alarm read: '+error.message); }
-}
-async function cgd1WriteAlarm() {
-	try {
-		let index = 0, t = $('cgd1AlarmTime').value.split(':').map(Number);
-		let days = 0;
-		document.querySelectorAll('.cgd1AlarmDay:checked').forEach(el => days |= Number(el.value));
-		let payload = new Uint8Array([index, $('cgd1AlarmEnabled').checked?1:0, t[0], t[1], days, $('cgd1AlarmSnooze').checked?1:0]);
-		await cgd1Call(4, payload);
-		await cgd1Call(7, new Uint8Array([1, $('cgd1AlarmMaster').checked?1:0]));
-		await cgd1ReadAlarm();
-		addLog('CGD1 alarm saved; LCD alarm icon follows enabled schedules');
-	} catch(error) { addLog('CGD1 alarm save: '+error.message); }
-}
-async function cgd1SetAlarmMaster() {
-	try {
-		await cgd1Call(7, new Uint8Array([1, $('cgd1AlarmMaster').checked?1:0]));
-		addLog('CGD1 alarm master updated');
-	} catch(error) { addLog('CGD1 alarm master: '+error.message); }
-}
-async function cgd1ReadAlarmMaster() {
-	try {
-		let r = await cgd1Call(7, new Uint8Array());
-		$('cgd1AlarmMaster').checked = !!r.getUint8(3);
-	} catch(error) { addLog('CGD1 alarm master: '+error.message); }
-}
-async function cgd1ReadSettings() {
-	try {
-		let r = await cgd1Call(1, new Uint8Array());
-		$('cgd1Volume').value = r.getUint8(5);
-		$('cfg_flg_am_pm').checked = !!(r.getUint8(10) & 1);
-		$('cgd1AlarmMaster').checked = !(r.getUint8(10) & 2);
-	} catch(error) { addLog('CGD1 settings: '+error.message); }
-}
-async function cgd1SetVolume() {
-	try {
-		let r = await cgd1Call(1, new Uint8Array());
-		let payload = new Uint8Array([r.getUint8(4), Number($('cgd1Volume').value), r.getUint8(6), 0, 0, $('cfg_flg_am_pm').checked?1:0]);
-		await cgd1Call(2, payload);
-		addLog('CGD1 volume saved');
-	} catch(error) { addLog('CGD1 volume: '+error.message); }
-}
-function cgd1Crc32(bytes) {
-	let crc = 0xffffffff;
-	for(let b of bytes) { crc ^= b; for(let i=0;i<8;i++) crc = (crc>>>1) ^ ((crc&1)?0xedb88320:0); }
-	return (crc ^ 0xffffffff) >>> 0;
-}
-async function cgd1UploadPcm() {
-	let file = $('cgd1PcmFile').files[0];
-	if(!file) { addLog('Choose a raw PCM8 mono 8000 Hz file'); return; }
-	try {
-		let pcm = new Uint8Array(await file.arrayBuffer());
-		if(!pcm.length || pcm.length > 0x18000 || String.fromCharCode(...pcm.slice(0,4)) === 'RIFF')
-			throw new Error('Use raw PCM8 mono 8000 Hz, max 96 KiB (not WAV/MP3)');
-		let crc = cgd1Crc32(pcm), begin = cgd1Join(cgd1Le32(pcm.length), cgd1Le32(crc));
-		await cgd1Call(0x10, begin);
-		let progress = async () => cgd1Call(0x13, new Uint8Array());
-		let state;
-		do { let r = await progress(); state = r.getUint8(3); if(state === 5) throw new Error('SPI NOR upload failed'); if(state !== 2) await new Promise(resolve => setTimeout(resolve, 50)); } while(state !== 2);
-		for(let offset = 0; offset < pcm.length;) {
-			let count = Math.min(14, pcm.length-offset, 256-(offset&255));
-			await cgd1Call(0x11, cgd1Join(cgd1Le32(offset), pcm.slice(offset, offset+count)));
-			offset += count;
-			let pending;
-			do {
-				let r = await progress();
-				if(r.getUint8(3) === 5) throw new Error('SPI NOR write failed');
-				pending = !!r.getUint8(4);
-				if(pending) await new Promise(resolve => setTimeout(resolve, 20));
-			} while(pending);
-			if((offset & 1023) < count) $('cgd1Status').textContent = 'Uploading PCM: '+offset+' / '+pcm.length+' bytes';
-		}
-		await cgd1Call(0x12, new Uint8Array());
-		do { let r = await progress(); state = r.getUint8(3); if(state === 5) throw new Error('PCM verify/commit failed'); if(state !== 4) await new Promise(resolve => setTimeout(resolve, 50)); } while(state !== 4);
-		$('cgd1Status').textContent = 'Ringtone uploaded and verified ('+pcm.length+' bytes)';
-		addLog('CGD1 ringtone upload complete; active SPI NOR slot switched after CRC verification');
-	} catch(error) { $('cgd1Status').textContent = error.message; addLog('CGD1 ringtone upload: '+error.message); }
-}
 function setDevTime() {
-	return writeDevTime(PVVXClock.now(new Date()));
-}
-function setManualDevTime() {
-	try {
-		return writeDevTime(PVVXClock.parse($('clockDateTime').value));
-	} catch(error) {
-		addLog(error.message);
-	}
-}
-function clockPanel() {
-	return '<fieldset><legend>PVVX date and time</legend>' +
-		'<button type="button" onclick="setDevTime()">Set computer date/time</button> ' +
-		'<button type="button" onclick="sendCustomSetting(&quot;23&quot;)">Read date/time</button><br>' +
-		'<label>Date/time <input id="clockDateTime" type="datetime-local" step="1" min="2000-01-01T00:00" max="2099-12-31T23:59:59"></label> ' +
-		'<button type="button" onclick="setManualDevTime()">Set selected date/time</button>' +
-		'<div id="clockReadback" role="status"></div></fieldset>';
+	let time = Date.now()/1000;
+	time -= (new Date()).getTimezoneOffset() * 60;
+	blk = new Uint8Array(5);
+	blk[0] = 0x23;
+	blk[1] = time & 0xff;
+	blk[2] = (time >> 8) & 0xff;
+	blk[3] = (time >> 16) & 0xff;
+	blk[4] = (time >> 24) & 0xff;
+	addClog("Send cmd Set DevTime ("+dump(blk, blk.length)+")...");
+	settingsCharacteristics.writeValue(blk).then(_ => {
+		addAlog('Send new DevTime ok');
+	});
 }
 function calkDeltaTime() {
 	devtime.step = 1;
@@ -3838,7 +3669,7 @@ function CustomConfig() {
  let is = '';
  if(cfg.ver >= 0x10) {
   is = '<hr>Send commands to custom firmware:<br><input type="text" id="cmdTXT" value=""><button type="button" onclick="sendCustomSetting($(&quot;cmdTXT&quot;).value,settingsCharacteristics);">Send</button>';
-	if(hwver_id <= 15 || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 49) || (hwver_id == 52) || (hwver_id == 58)) {
+  if(hwver_id <= 15 || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 49) || (hwver_id == 52)) {
 	if(hwver_id == 0)
 		is += ' Test: [ <button type="button" onclick="lcd_clock();">Show clock on LCD</button> <button type="button" onclick="lcd_restore();">Repair LCD</button> ]<br>';
 	is += '<br>Show on device screen:<br>';
@@ -3871,8 +3702,8 @@ function CustomConfig() {
 		is += '&nbsp;&nbsp;12-hour clock:<input type="checkbox" id="cfg_flg_am_pm">&nbsp;&nbsp;T&H 2 decimal places<input type="checkbox" id="cfg_flg_x100">';
 	  if(hwver_id == 12)
 		is += '<br><br>Date DD/MM: <input type="checkbox" id="cfg_flg3_ddmm">';
-	} else if (hwver_id == 49 || hwver_id == 58) {
-		is += '&nbsp;&nbsp;12-hour clock:<input type="checkbox" id="cfg_flg_am_pm">' + (hwver_id == 49 ? ' , Show WeekDay: <input type="checkbox" id="cfg_flg3_weekday">' : '')
+	} else if (hwver_id == 49) {
+		is += '&nbsp;&nbsp;12-hour clock:<input type="checkbox" id="cfg_flg_am_pm"> , Show WeekDay: <input type="checkbox" id="cfg_flg3_weekday">'
 	}
 	is += '<br><br>';
 	if((hwver_id == 2)||(hwver_id == 6)||(hwver_id == 7))
@@ -3881,7 +3712,7 @@ function CustomConfig() {
 		is += 'Show: <select id="cfg_scr_type"><option value="0">Time</option><option value="1">Temperature</option><option value="2">Humidity</option><option value="3">Battery %</option><option value="4">Battery V</option><option value="5">ExtNumber&Symbols</option></select>';
 	//else if(hwver_id == 49)
 	//	is += 'Show: <select id="cfg_smiley"><option value="0">&nbsp;&nbsp;&nbsp;</option><option value="1">&nbsp;^_^&nbsp;</option><option value="2">&nbsp;-&and;-&nbsp;</option><option value="3">&nbsp;&Delta;&#9651;&Delta;&nbsp;</option><option value="4">(&nbsp;&nbsp;&nbsp;)</option><option value="5">(^_^)</option><option value="6">(-&and;-)</option><option value="7">(&Delta;&#9651;&Delta;)</option></select>';
-	else if(hwver_id != 58)
+	else
 		is += 'Smiley: <select id="cfg_smiley"><option value="0">&nbsp;&nbsp;&nbsp;</option><option value="1">&nbsp;^_^&nbsp;</option><option value="2">&nbsp;-&and;-&nbsp;</option><option value="3">&nbsp;&Delta;&#9651;&Delta;&nbsp;</option><option value="4">(&nbsp;&nbsp;&nbsp;)</option><option value="5">(^_^)</option><option value="6">(-&and;-)</option><option value="7">(&Delta;&#9651;&Delta;)</option></select>';
 	is += ', Comfort: <input type="checkbox" id="cfg_flg_comfort">';
 	if((hwver_id == 9) || (hwver_id == 12)) {
@@ -3892,8 +3723,7 @@ function CustomConfig() {
 	if(cfg.ver >= 0x18) {
 		if(!((hwver_id == 9)||(hwver_id == 12)||(hwver_id == 49)))
 			is += ', Clock: <input type="checkbox" id="cfg_flg_blinking"> ';
-		if(hwver_id == 49) is += clockPanel();
-		else is += '<button type="button" onclick="setDevTime();">Set Time</button> <button type="button" onclick="sendCustomSetting(&quot;23&quot;);">Get Time</button>' + (hwver_id == 58 ? cgd1AlarmPanel() : '');
+		is += '<button type="button" onclick="setDevTime();">Set Time</button> <button type="button" onclick="sendCustomSetting(&quot;23&quot;);">Get Time</button>';
 	}else
 		is += ', Blinking: <input type="checkbox" id="cfg_flg_blinking">';
 	is += '<br><br>Sensor in "LowPower mode": <input title="Sensor measurements in Low Power mode" type="checkbox" id="cfg_flg_lp_meas">';
@@ -3920,7 +3750,7 @@ function CustomConfig() {
 		else
 			is += 'BT5+ PHY: <input title="Support BT5.0+ PHY (LE 2M/1M/500K/125K)" type="checkbox" id="bt5_flags">, CSA2: <input title="Channel Selection Algorithm 2 or 1" type="checkbox" id="csa2_flags"><br><br>';
 	}
-  if(hwver_id <= 15 || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 52) || (hwver_id == 58)) { // LCD
+  if(hwver_id <= 15 || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 52)) { // LCD
 		is += 'Advertising type: <select id="cfg_flg_adv_type"><option value="0">ATC1441</option><option value="1">PVVX (Custom)</option><option value="2">MIJIA (MiHome)</option><option value="3" selected>';
 	if(cfg.ver >= 0x37)
 		if(cfg.ver >= 0x45)
@@ -3956,7 +3786,7 @@ function CustomConfig() {
 	//if(MAX_RF_TX_Power) 
 	is += 'RF TX Power: <select id="cfg_rf_tx"><option value="63">VBAT+10.46 dbm</option><option value="61">VBAT+10.29 dbm</option><option value="58">VBAT+10.01 dbm</option><option value="56">VBAT+9.81 dbm</option><option value="53">VBAT+9.48 dbm</option><option value="51">VBAT+9.24 dbm</option><option value="49">VBAT+8.97 dbm</option><option value="47">VBAT+8.73 dbm</option><option value="45">VBAT+8.44 dbm</option><option value="43">VBAT+8.13 dbm</option><option value="41">VBAT+7.79 dbm</option><option value="39">VBAT+7.41 dbm</option><option value="37">VBAT+7.02 dbm</option><option value="35">VBAT+6.60 dbm</option><option value="33">VBAT+6.14 dbm</option><option value="31">VBAT+5.65 dbm</option><option value="29">VBAT+5.13 dbm</option><option value="27">VBAT+4.57 dbm</option><option value="25">VBAT+3.94 dbm</option><option value="23">VBAT+3.23 dbm</option><option value="191" selected>VANT+3.01 dbm</option><option value="189">VANT+2.81 dbm</option><option value="187">VANT+2.61 dbm</option><option value="185">VANT+2.39 dbm</option><option value="182">VANT+1.99 dbm</option><option value="180">VANT+1.73 dbm</option><option value="178">VANT+1.45 dbm</option><option value="176">VANT+1.17 dbm</option><option value="174">VANT+0.90 dbm</option><option value="172">VANT+0.58 dbm</option><option value="169">VANT+0.04 dbm</option><option value="168">VANT-0.14 dbm</option><option value="164">VANT-0.97 dbm</option><option value="162">VANT-1.42 dbm</option><option value="160">VANT-1.89 dbm</option><option value="158">VANT-2.48 dbm</option><option value="156">VANT-3.03 dbm</option><option value="154">VANT-3.61 dbm</option><option value="152">VANT-4.26 dbm</option><option value="150">VANT-5.03 dbm</option><option value="148">VANT-5.81 dbm</option><option value="146">VANT-6.67 dbm</option><option value="144">VANT-7.65 dbm</option><option value="142">VANT-8.65 dbm</option><option value="140">VANT-9.89 dbm</option><option value="138">VANT-11.4 dbm</option><option value="136">VANT-13.29 dbm</option><option value="134">VANT-15.88 dbm</option><option value="132">VANT-19.27 dbm</option><option value="130">VANT-25.18 dbm</option></select><br><br>';
 	//else is += 'RF TX Power: <select id="cfg_rf_tx"><option value="191" selected>VANT+3.01 dbm</option><option value="189">VANT+2.81 dbm</option><option value="187">VANT+2.61 dbm</option><option value="185">VANT+2.39 dbm</option><option value="182">VANT+1.99 dbm</option><option value="180">VANT+1.73 dbm</option><option value="178">VANT+1.45 dbm</option><option value="176">VANT+1.17 dbm</option><option value="174">VANT+0.90 dbm</option><option value="172">VANT+0.58 dbm</option><option value="169">VANT+0.04 dbm</option><option value="168">VANT-0.14 dbm</option><option value="164">VANT-0.97 dbm</option><option value="162">VANT-1.42 dbm</option><option value="160">VANT-1.89 dbm</option><option value="158">VANT-2.48 dbm</option><option value="156">VANT-3.03 dbm</option><option value="154">VANT-3.61 dbm</option><option value="152">VANT-4.26 dbm</option><option value="150">VANT-5.03 dbm</option><option value="148">VANT-5.81 dbm</option><option value="146">VANT-6.67 dbm</option><option value="144">VANT-7.65 dbm</option><option value="142">VANT-8.65 dbm</option><option value="140">VANT-9.89 dbm</option><option value="138">VANT-11.4 dbm</option><option value="136">VANT-13.29 dbm</option><option value="134">VANT-15.88 dbm</option><option value="132">VANT-19.27 dbm</option><option value="130">VANT-25.18 dbm</option></select><br><br>';
-  if(hwver_id <= 15  || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 49) || (hwver_id == 52) || (hwver_id == 58)) {
+  if(hwver_id <= 15  || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 49) || (hwver_id == 52)) { 
 	if(!((hwver_id == 9)||(hwver_id == 12)||(hwver_id == 49)))
 		is += 'Minimum LCD refresh rate: <input size="5" title="0.5..12.75 sec, step: 0.05 s, default 2.45 s" id="cfg_lcd_tint" maxlength="6" value="2.45"> s, step: 0.05 s<br><br>';
 	if(cfg.ver == 0x19) {
@@ -4092,7 +3922,7 @@ function CustomConfig() {
 	} else if(hwver_id == 49) {
 		$("cfg_flg_am_pm").checked = (cfg.flg&32) != 0;
 		$("cfg_flg_show_batt").checked = (cfg.flg&8) != 0;
-		if(hwver_id == 49) $("cfg_smiley").value = cfg.flg2&7;
+		$("cfg_smiley").value = cfg.flg2&7;
     	$("cfg_flg3_weekday").checked = ((cfg.temp_offset&128) != 0);
 		$("adv_flags").checked = (cfg.flg2&0x10) != 0;
 		$("bt5_flags").checked = (cfg.flg2&0x20) != 0;
@@ -4100,7 +3930,7 @@ function CustomConfig() {
 	} else {
 		$("cfg_flg_blinking").checked = (cfg.flg&8) != 0;
 		$("cfg_flg_show_batt").checked = (cfg.flg&32) != 0;
-		if(hwver_id != 58) $("cfg_smiley").value = cfg.flg2&7;
+		$("cfg_smiley").value = cfg.flg2&7;
 		if(cfg.ver == 0x19)
 			$("cfg_flg2_memo").checked = (cfg.flg2&8) != 0;
 		if(cfg.ver >= 0x30)
@@ -4208,7 +4038,6 @@ function CustomConfig() {
 	$("cfg_rf_tx").value = String(cfg.rf_tx_power);
 	$("cfg_con_lat").value = String((cfg.connect_latency + 1) * 20);
   }
-  if(hwver_id == 58) { cgd1ReadSettings(); cgd1ReadAlarm(); }
 	InfoIntervals();
 	cfg.enable = true;
  } else
@@ -4220,7 +4049,7 @@ function hex(number, len) {
 	return str;
 }
 function SendCustomConfig() {
-  if(hwver_id < 15 || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 49) || (hwver_id == 52) || (hwver_id == 58)) {
+  if(hwver_id < 15 || (hwver_id >= 30 && hwver_id <= 33) || (hwver_id == 38) || (hwver_id == 49) || (hwver_id == 52)) {
 	if(hwver_id == 49) {
 		cfg.flg = ($("cfg_flg_adv_type").value & 3)+
 		(($("cfg_flg_comfort").checked) ? 4 : 0) +
@@ -4263,7 +4092,7 @@ function SendCustomConfig() {
 		(($("cfg_flg_show_batt").checked) ? 32 : 0) +
 		(($("cfg_flg_tx_meas").checked) ? 64 : 0) +
 		(($("cfg_flg_lp_meas").checked) ? 128 : 0);
-		if(hwver_id != 58) cfg.flg2 = (parseInt($("cfg_smiley").value) & 7);
+		cfg.flg2 = (parseInt($("cfg_smiley").value) & 7);
 		if(cfg.ver == 0x19)	cfg.flg2 += (($("cfg_flg2_memo").checked) ? 8 : 0);
 		if(cfg.ver >= 0x22)	cfg.flg2 += (($("cfg_adv_crypto").checked) ? 0x08 : 0);
 		if(cfg.ver >= 0x30)	cfg.flg2 += (($("adv_flags").checked )? 0x10 : 0);
