@@ -55,17 +55,17 @@ function context(device, pcm, droppedPacket = -1) {
 	return {sandbox, elements, history};
 }
 
-test('actual browser upload against compiled firmware: 96 KiB, page writes, CRC, visible completion', async () => {
+test('actual browser upload against compiled firmware: 512 KiB, page writes, CRC, visible completion', async () => {
 	const device = transport(false);
 	try {
-		const pcm = Uint8Array.from({length: 0x18000}, (_, i) => (i * 71 + 11) & 255);
+		const pcm = Uint8Array.from({length: 0x80000}, (_, i) => (i * 71 + 11) & 255);
 		const {sandbox, elements, history} = context(device, pcm);
 		await sandbox.cgd1UploadPcm();
 		assert.match(elements.cgd1Status.textContent, /100%.*CRC verified, active/);
 		assert.equal(elements.cgd1UploadProgress.value, 100);
 		assert.equal(elements.cgd1UploadButton.disabled, false);
 		assert.ok(history.some(x => /Sending: 50%/.test(x)));
-		assert.equal(await device.send('stats'), '384 24 98304');
+		assert.equal(await device.send('stats'), '2048 128 524288');
 	} finally { device.close(); }
 });
 
