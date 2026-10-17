@@ -1878,7 +1878,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v73.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v74.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null) {
@@ -2858,7 +2858,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v73.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v74.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3218,7 +3218,7 @@ async function cgd1FlushSliders() {
 		while(cgd1SliderPending.size) {
 			const kind = cgd1SliderPending.values().next().value;
 			cgd1SliderPending.delete(kind);
-			await cgd1Call(5,new Uint8Array([0]));
+			if(kind === 'volume') await cgd1Call(5,new Uint8Array([0]));
 			await cgd1StoreAudioSettings(kind);
 			if(kind === 'volume') await cgd1Call(0x1b,new Uint8Array([Number($('cgd1Volume').value)]));
 			else await cgd1Call(0x1a,new Uint8Array());
