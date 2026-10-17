@@ -1878,7 +1878,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v71.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v72.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null) {
@@ -2858,7 +2858,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v71.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v72.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3178,6 +3178,7 @@ async function cgd1Refresh() {
 		await cgd1ReadSettings();
 		await cgd1ReadFlash();
 		await cgd1ReadNight();
+		cgd1Slider('cgd1LightSeconds', (await cgd1Call(0x1c,new Uint8Array())).getUint8(3));
 		await cgd1ReadAlarm();
 	} catch(error) { addLog('CGD1: ' + error.message); }
 	finally { cgd1Refreshing = false; }
@@ -3191,19 +3192,56 @@ function cgd1AlarmPanel() {
 		toggle('cgd1AlarmEnabled', '', false) + '<input id="cgd1AlarmTime" type="time" value="07:00"> ' +
 		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
-		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button><br>' +
-		'<label>Volume <input id="cgd1Volume" type="range" min="1" max="5" step="1" value="2" oninput="this.nextElementSibling.value=this.value"><output>2</output></label> <button type="button" onclick="cgd1TestVolume()">Test</button> <button type="button" onclick="cgd1SetVolume()">Apply</button><br>' +
-		'<label>Backlight <input id="cgd1Brightness" type="range" min="1" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value"><output>5</output></label> <button type="button" onclick="cgd1ApplyLight()">Apply</button><br>' +
+		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button> <button type="button" onclick="cgd1DeleteAlarm()">Del alarm</button><br>' +
+		'<label>Volume <input id="cgd1Volume" type="range" min="1" max="5" step="1" value="2" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;volume&quot;)"><output>2</output></label><br>' +
+		'<label>Backlight <input id="cgd1Brightness" type="range" min="1" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
+		'<label>Backlight duration <input id="cgd1LightSeconds" type="range" min="0" max="30" value="10" oninput="this.nextElementSibling.value=this.value" onchange="cgd1SetLightSeconds()"><output>10</output> s</label><br>' +
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
 		'<label>Ringtone <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw" onchange="cgd1LoadAudio()"></label><br>' +
 		'<span id="cgd1FlashInfo" role="status">Reading SPI flash…</span><br>' +
-		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">G.711 A-law</option><option value="5">G.711 μ-law</option><option value="6">G.726 32 kbit/s</option><option value="7" disabled>AMR-NB (not enabled)</option><option value="8" disabled>Opus (not enabled)</option></select></label> ' +
+		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">G.711 A-law</option><option value="5">G.711 μ-law</option><option value="6">G.726 32 kbit/s</option></select></label> ' +
 		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option></select></label> ' +
 		'<label>From <input id="cgd1TrimStart" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> <label>To <input id="cgd1TrimEnd" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> s<br>' +
 		'<span id="cgd1AudioInfo" role="status"></span><br>' +
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> <button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
 		'<progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span><br>' +
-		'<button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button>';
+		'<select id="cgd1TargetSlot"><option value="0">Auto</option><option value="1">Slot 0</option><option value="2">Slot 1</option></select> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button>';
+}
+let cgd1SliderPending = new Set(), cgd1SliderBusy = false;
+function cgd1QueueSlider(kind) {
+	cgd1SliderPending.add(kind);
+	if(!cgd1SliderBusy) cgd1FlushSliders();
+}
+async function cgd1FlushSliders() {
+	cgd1SliderBusy = true;
+	try {
+		while(cgd1SliderPending.size) {
+			const kind = cgd1SliderPending.values().next().value;
+			cgd1SliderPending.delete(kind);
+			await cgd1Call(5,new Uint8Array([0]));
+			await cgd1StoreAudioSettings(kind);
+			if(kind === 'volume') await cgd1Call(0x1b,new Uint8Array([Number($('cgd1Volume').value)]));
+			else await cgd1Call(0x1a,new Uint8Array());
+		}
+	} catch(error) { $('cgd1Status').textContent = error.message; }
+	finally { cgd1SliderBusy = false; }
+}
+async function cgd1SetLightSeconds() {
+	try {
+		const seconds = Number($('cgd1LightSeconds').value);
+		const r = await cgd1Call(0x1c,new Uint8Array([seconds]));
+		if(r.getUint8(3) !== seconds) throw new Error('Readback mismatch');
+	} catch(error) { $('cgd1Status').textContent = error.message; }
+}
+async function cgd1DeleteAlarm() {
+	try {
+		const slot = Number($('cgd1AlarmSlot').value);
+		await cgd1Call(4,new Uint8Array([slot,0,0,0,0,0]));
+		const saved = await cgd1Call(3,new Uint8Array([slot]));
+		if(saved.getUint8(4)) throw new Error('Alarm deletion readback failed');
+		await cgd1ReadAlarm();
+		$('cgd1Status').textContent = 'Alarm deleted';
+	} catch(error) { $('cgd1Status').textContent = error.message; }
 }
 async function cgd1ReadAlarm() {
 	try {
@@ -3319,7 +3357,7 @@ async function cgd1ReadFlash() {
 		cgd1AudioOptions();
 	} catch(error) {
 		cgd1Geometry = null;
-		$('cgd1FlashInfo').textContent = 'SPI unavailable: ' + error.message + ' (firmware v71 required)';
+		$('cgd1FlashInfo').textContent = 'SPI unavailable: ' + error.message + ' (firmware v72 required)';
 		throw error;
 	}
 }
@@ -3554,7 +3592,7 @@ async function cgd1UploadPcm() {
 		if(capabilities.getUint8(3) !== 2 || capabilities.getUint8(4) !== 14 || capabilities.getUint16(5, true) !== 256)
 			throw new Error('Unsupported upload protocol');
 		const crc = cgd1Crc32(pcm);
-		await cgd1Call(0x10, cgd1Join(cgd1Le32(pcm.length), cgd1Le32(crc)));
+		await cgd1Call(0x10, cgd1Join(cgd1Le32(pcm.length), cgd1Le32(crc), new Uint8Array([Number($('cgd1TargetSlot').value)])));
 		await cgd1WaitUpload(2, 0, 'Erasing', Math.ceil(pcm.length / 4096) * 4096);
 		for(let offset = 0; offset < pcm.length;) {
 			const end = Math.min(pcm.length, offset + 256);
@@ -4170,7 +4208,7 @@ function CustomConfig() {
 	is += '	<button type="button" id="extsend" onclick="sendExt();">Show</button>';
 	ext.enable = true;
 	} else ext.enable = false;
-	is += '<br><br><hr><br><b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
+	is += (hwver_id == 58 ? '<br>' : '<br><br><hr><br>') + '<b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
 	if(cfg.ver >= 0x43 && hwver_id != 58)
 		is += 'Screen Off: <input title="Screen Off" type="checkbox" id="cfg_scr_off"><br><br>';
 	if(hwver_id != 58)
@@ -4207,7 +4245,7 @@ function CustomConfig() {
 	is += '<br><br>Sensor in "LowPower mode": <input title="Sensor measurements in Low Power mode" type="checkbox" id="cfg_flg_lp_meas">';
 	is += ', Tx measures: <input title="When connected, start transferring measurements" type="checkbox" id="cfg_flg_tx_meas">';
   } else {
-	is += '<br><hr><br><b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
+	is += (hwver_id == 58 ? '<br>' : '<br><hr><br>') + '<b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
 	//is += 'Sensor in "LowPower mode": <input title="Sensor measurements in Low Power mode" type="checkbox" id="cfg_flg_lp_meas">';
 	is += 'Tx measures: <input title="When connected, start transferring measurements" type="checkbox" id="cfg_flg_tx_meas">';
   }
