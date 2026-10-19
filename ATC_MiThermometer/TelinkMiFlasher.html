@@ -1116,7 +1116,7 @@ function CustomBlkParse(value) {
 			clearTimeout(pending.timer);
 			cgd1Replies.delete(sub);
 			if(value.getUint8(2)) {
-				let status = value.getUint8(2), message = ({1:'invalid request',2:'device busy',3:'flash/RTC I/O error',4:'set and verify date/time first'})[status] || ('status '+status);
+				let status = value.getUint8(2), message = ({1:'invalid request',2:'device busy',3:'flash/RTC I/O error',4:'set and verify date/time first',5:'Auto slot overlaps legacy ringtone; select Slot 0 or Slot 1 to overwrite'})[status] || ('status '+status);
 				pending.reject(new Error(message));
 			}
 			else pending.resolve(value);
@@ -1878,10 +1878,10 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v79.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v80.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
-	if(hwver_id != null) {
+	if(hwver_id != null && hwver_id != 58) {
 		if(otafiles.loaded && otafiles.version) {
 			if(otafiles.custom != null) {
 				let fn = otafiles.custom[hwver_id];
@@ -2858,7 +2858,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v79.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v80.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3199,7 +3199,7 @@ function cgd1AlarmPanel() {
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
 		'<label>Ringtone <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw" onchange="cgd1LoadAudio()"></label><br>' +
 		'<span id="cgd1FlashInfo" role="status">Reading SPI flash…</span><br>' +
-		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">G.711 A-law</option><option value="5">G.711 μ-law</option><option value="6">G.726 32 kbit/s</option></select></label> ' +
+		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">G.711 A-law</option><option value="5">G.711 μ-law</option></select></label> ' +
 		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option></select></label> ' +
 		'<label>From <input id="cgd1TrimStart" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> <label>To <input id="cgd1TrimEnd" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> s<br>' +
 		'<span id="cgd1AudioInfo" role="status"></span><br>' +
@@ -3417,6 +3417,11 @@ async function cgd1LoadAudio() {
 		cgd1AudioOptions();
 	} catch(error) { $('cgd1AudioInfo').textContent = error.message; }
 }
+function cgd1MaxFrames(codec, slot) {
+	if(!Number.isSafeInteger(slot) || slot <= 24) return 0;
+	const payload = slot - 24;
+	return codec === 2 ? Math.floor(payload / 2) : codec === 3 ? payload * 2 : payload;
+}
 function cgd1AudioOptions() {
 	const codec = Number($('cgd1Codec').value);
 	for(const option of $('cgd1Rate').options) {
@@ -3428,9 +3433,9 @@ function cgd1AudioOptions() {
 		$('cgd1AudioInfo').textContent = 'Read SPI flash before converting';
 		return;
 	}
-	const rate = Number($('cgd1Rate').value), bits = codec === 2 ? 16 : (codec === 3 || codec === 6) ? 4 : 8;
-	const max = Math.floor((cgd1Geometry.slot - 24) * 8 / bits) / rate;
-	let text = 'Max ' + max.toFixed(3) + ' s';
+	const rate = Number($('cgd1Rate').value);
+	const max = cgd1MaxFrames(codec,cgd1Geometry.slot) / rate;
+	let text = 'Max ' + max.toFixed(3) + ' s · ' + (cgd1Geometry.slot - 24) + ' B audio + 24 B header = ' + cgd1Geometry.slot + ' B slot';
 	if(cgd1Source) {
 		const start = Number($('cgd1TrimStart').value), end = Number($('cgd1TrimEnd').value);
 		const duration = Math.max(0, Math.min(end, cgd1Source.duration) - start);
@@ -3455,17 +3460,10 @@ function cgd1Compand(sample, codec) {
 	for(let mask=16384; exponent > 0 && !(value & mask); exponent--, mask>>=1) {}
 	return (~(sign | (exponent << 4) | ((value >> (exponent + 3)) & 15))) & 255;
 }
-// G.726: FFmpeg standalone core, LGPL-2.1-or-later. Matching source is in the
-// firmware source package (src/cgd1/g72x.c, g72x.h).
-let cgd1G726 = null;
-async function cgd1LoadG726() {
-	if(!cgd1G726) {
-		const bytes = Uint8Array.from(atob("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"), c => c.charCodeAt(0));
-		cgd1G726 = (await WebAssembly.instantiate(bytes, {})).instance.exports;
-	}
-}
 function cgd1Encode(samples, codec, rate) {
-	const bytes = codec === 2 ? samples.length * 2 : (codec === 3 || codec === 6) ? Math.ceil(samples.length/2) : samples.length;
+	if(codec < 1 || codec > 5) throw new Error('Unsupported codec');
+	if(cgd1Geometry) samples = samples.subarray(0,cgd1MaxFrames(codec,cgd1Geometry.slot));
+	const bytes = codec === 2 ? samples.length * 2 : (codec === 3) ? Math.ceil(samples.length/2) : samples.length;
 	const output = new Uint8Array(24 + bytes), view = new DataView(output.buffer);
 	output.set([67,71,68,65,1,codec,1,0]);
 	view.setUint32(8,rate,true);
@@ -3475,7 +3473,6 @@ function cgd1Encode(samples, codec, rate) {
 	const steps = [7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767];
 	const changes = [-1,-1,-1,-1,2,4,6,8];
 	let predictor=0,index=0;
-	if(codec === 6) cgd1G726.cgd1_g726_reset();
 	for(let i=0;i<samples.length;i++) {
 		const sample = Math.max(-32768,Math.min(32767,Math.round(samples[i]*32768)));
 		if(codec === 1) output[24+i] = (sample + 32768) >> 8;
@@ -3490,7 +3487,7 @@ function cgd1Encode(samples, codec, rate) {
 			predictor=Math.max(-32768,Math.min(32767,predictor+((code&8)?-delta:delta)));
 			index=Math.max(0,Math.min(88,index+changes[code&7]));
 			output[24+(i>>1)] |= code << ((i&1)*4);
-		} else if(codec === 6) output[24+(i>>1)] |= cgd1G726.cgd1_g726_encode(sample) << ((i&1)*4);
+		}
 		else output[24+i] = cgd1Compand(sample,codec);
 	}
 	return output;
@@ -3503,7 +3500,7 @@ async function cgd1DecodeAudio(file) {
 	if(!(cgd1Geometry.codecs & (1<<codec))) throw new Error('Unsupported target codec');
 	const start = Number($('cgd1TrimStart').value), end = Math.min(Number($('cgd1TrimEnd').value),cgd1Source.duration);
 	if(!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) throw new Error('Invalid trim interval');
-	const maxFrames = Math.floor((cgd1Geometry.slot-24)*8/(codec===2?16:(codec===3||codec===6)?4:8));
+	const maxFrames = cgd1MaxFrames(codec,cgd1Geometry.slot);
 	const frames = Math.min(maxFrames,Math.floor((end-start)*rate));
 	if(!frames) throw new Error('Empty audio');
 	const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -3539,7 +3536,6 @@ async function cgd1DecodeAudio(file) {
 		}
 		samples=down;
 	}
-	if(codec === 6) await cgd1LoadG726();
 	return cgd1Encode(samples,codec,rate);
 }
 function cgd1TransferProgress(label, count, total) {
@@ -3554,7 +3550,7 @@ async function cgd1WaitUpload(state, expectedBytes, label, total) {
 		const r = await cgd1Call(0x13, new Uint8Array());
 		const actual = r.getUint8(3);
 		if(actual === 5 || actual === 0)
-			throw new Error('Device aborted the transfer or CRC verification failed');
+			throw new Error(({1:'SPI write timeout',2:'Receive timeout',3:'CRC mismatch',4:'Invalid audio header',5:'Auto slot overlaps the legacy ringtone; select Slot 0 or Slot 1 to overwrite'}[r.byteLength > 17 ? r.getUint8(17) : 0]) || 'Device aborted transfer or CRC verification failed');
 		if(label)
 			cgd1TransferProgress(label, r.getUint32(state === 4 ? 13 : 9, true), total);
 		if(actual === state && !r.getUint8(4)) {
@@ -3599,8 +3595,8 @@ async function cgd1UploadPcm() {
 			while(offset < end) {
 				const count = Math.min(14, end - offset);
 				const packet = cgd1Join(new Uint8Array([0x90, 0x15]), cgd1Le32(offset), pcm.slice(offset, offset + count));
-				if(typeof settingsCharacteristics.writeValueWithoutResponse === 'function')
-					await settingsCharacteristics.writeValueWithoutResponse(packet);
+				if(typeof settingsCharacteristics.writeValueWithResponse === 'function')
+					await settingsCharacteristics.writeValueWithResponse(packet);
 				else
 					await settingsCharacteristics.writeValue(packet);
 				offset += count;
@@ -4208,7 +4204,7 @@ function CustomConfig() {
 	is += '	<button type="button" id="extsend" onclick="sendExt();">Show</button>';
 	ext.enable = true;
 	} else ext.enable = false;
-	is += (hwver_id == 58 ? '<br>' : '<br><br><hr><br>') + '<b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
+	is += (hwver_id == 58 ? '<br>' : '<br><br><hr><br>') + '<b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button>' + (hwver_id == 58 ? '<br>' : '<br><br>');
 	if(cfg.ver >= 0x43 && hwver_id != 58)
 		is += 'Screen Off: <input title="Screen Off" type="checkbox" id="cfg_scr_off"><br><br>';
 	if(hwver_id != 58)
@@ -4220,7 +4216,7 @@ function CustomConfig() {
 	} else if (hwver_id == 49) {
 		is += '&nbsp;&nbsp;12-hour clock:<input type="checkbox" id="cfg_flg_am_pm">' + (hwver_id == 49 ? ' , Show WeekDay: <input type="checkbox" id="cfg_flg3_weekday">' : '')
 	}
-	is += '<br><br>';
+	if(hwver_id != 58) is += '<br><br>';
 	if((hwver_id == 2)||(hwver_id == 6)||(hwver_id == 7))
 		is += 'Line: <select id="cfg_smiley"><option value="0" selected>&nbsp;&nbsp;&nbsp;</option><option value="5">&nbsp;---&nbsp;</option></select>';
 	else if((hwver_id == 9) || (hwver_id == 12))
@@ -4245,7 +4241,7 @@ function CustomConfig() {
 	is += '<br><br>Sensor in "LowPower mode": <input title="Sensor measurements in Low Power mode" type="checkbox" id="cfg_flg_lp_meas">';
 	is += ', Tx measures: <input title="When connected, start transferring measurements" type="checkbox" id="cfg_flg_tx_meas">';
   } else {
-	is += (hwver_id == 58 ? '<br>' : '<br><hr><br>') + '<b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button><br><br>';
+	is += (hwver_id == 58 ? '<br>' : '<br><hr><br>') + '<b>Configuration:</b>&nbsp;<button type="button" onclick="sendCustomSetting(&quot;55&quot;);">Get Config</button>' + (hwver_id == 58 ? '<br>' : '<br><br>');
 	//is += 'Sensor in "LowPower mode": <input title="Sensor measurements in Low Power mode" type="checkbox" id="cfg_flg_lp_meas">';
 	is += 'Tx measures: <input title="When connected, start transferring measurements" type="checkbox" id="cfg_flg_tx_meas">';
   }
