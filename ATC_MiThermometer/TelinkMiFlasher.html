@@ -1878,7 +1878,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v80.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v81.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2858,7 +2858,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v80.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v81.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3176,6 +3176,8 @@ async function cgd1Refresh() {
 	cgd1Refreshing = true;
 	try {
 		await cgd1ReadSettings();
+		$('cgd1Sound').disabled = cfg.ver < 0x81;
+		if(cfg.ver >= 0x81) $('cgd1Sound').value = String((await cgd1Call(0x1d,new Uint8Array())).getUint8(3));
 		await cgd1ReadFlash();
 		await cgd1ReadNight();
 		cgd1Slider('cgd1LightSeconds', (await cgd1Call(0x1c,new Uint8Array())).getUint8(3));
@@ -3197,15 +3199,23 @@ function cgd1AlarmPanel() {
 		'<label>Backlight <input id="cgd1Brightness" type="range" min="1" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
 		'<label>Backlight duration <input id="cgd1LightSeconds" type="range" min="0" max="30" value="10" oninput="this.nextElementSibling.value=this.value" onchange="cgd1SetLightSeconds()"><output>10</output> s</label><br>' +
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
-		'<label>Ringtone <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw" onchange="cgd1LoadAudio()"></label><br>' +
+		'<label>Ringtone <select id="cgd1Sound" onchange="cgd1SetSound()"><option value="0">Custom</option><option value="1">Internal digital</option><option value="2">Internal mechanical</option></select></label><br>' +
+		'<label>File <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw" onchange="cgd1LoadAudio()"></label><br>' +
 		'<span id="cgd1FlashInfo" role="status">Reading SPI flash…</span><br>' +
-		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">G.711 A-law</option><option value="5">G.711 μ-law</option></select></label> ' +
-		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option></select></label> ' +
+		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option></select></label> ' +
+		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option><option value="32000">32000 (test)</option></select></label> ' +
 		'<label>From <input id="cgd1TrimStart" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> <label>To <input id="cgd1TrimEnd" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> s<br>' +
 		'<span id="cgd1AudioInfo" role="status"></span><br>' +
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> <button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
 		'<progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span><br>' +
 		'<select id="cgd1TargetSlot"><option value="0">Auto</option><option value="1">Slot 0</option><option value="2">Slot 1</option></select> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button>';
+}
+async function cgd1SetSound() {
+	try {
+		const value = Number($('cgd1Sound').value);
+		const r = await cgd1Call(0x1d,new Uint8Array([value]));
+		if(r.getUint8(3) !== value) throw new Error('Ringtone source readback mismatch');
+	} catch(error) { addLog('Ringtone source: ' + error.message); }
 }
 let cgd1SliderPending = new Set(), cgd1SliderBusy = false;
 function cgd1QueueSlider(kind) {
@@ -3424,8 +3434,8 @@ function cgd1MaxFrames(codec, slot) {
 function cgd1AudioOptions() {
 	const codec = Number($('cgd1Codec').value);
 	for(const option of $('cgd1Rate').options) {
-		const bit = {4000:1,8000:2,16000:4}[option.value];
-		option.disabled = (codec >= 4 && option.value !== '8000') || !!(cgd1Geometry && !(cgd1Geometry.rates & bit));
+		const bit = {4000:1,8000:2,16000:4,32000:8}[option.value];
+		option.disabled = !!(cgd1Geometry && !(cgd1Geometry.rates & bit));
 	}
 	if($('cgd1Rate').selectedOptions[0].disabled) $('cgd1Rate').value = '8000';
 	if(!cgd1Geometry) {
@@ -3443,24 +3453,8 @@ function cgd1AudioOptions() {
 	}
 	$('cgd1AudioInfo').textContent = text;
 }
-function cgd1Compand(sample, codec) {
-	let value;
-	if(codec === 4) {
-		const sign = sample >= 0 ? 0xd5 : 0x55;
-		value = sample < 0 ? -sample - 1 : sample;
-		if(value < 256) return (value >> 4) ^ sign;
-		let segment = 1;
-		while(segment < 7 && value >= (256 << segment)) segment++;
-		return ((segment << 4) | ((value >> (segment + 3)) & 15)) ^ sign;
-	}
-	const sign = sample < 0 ? 128 : 0;
-	value = Math.min(32635, Math.abs(sample)) + 132;
-	let exponent = 7;
-	for(let mask=16384; exponent > 0 && !(value & mask); exponent--, mask>>=1) {}
-	return (~(sign | (exponent << 4) | ((value >> (exponent + 3)) & 15))) & 255;
-}
 function cgd1Encode(samples, codec, rate) {
-	if(codec < 1 || codec > 5) throw new Error('Unsupported codec');
+	if(codec < 1 || codec > 3) throw new Error('Unsupported codec');
 	if(cgd1Geometry) samples = samples.subarray(0,cgd1MaxFrames(codec,cgd1Geometry.slot));
 	const bytes = codec === 2 ? samples.length * 2 : (codec === 3) ? Math.ceil(samples.length/2) : samples.length;
 	const output = new Uint8Array(24 + bytes), view = new DataView(output.buffer);
@@ -3487,7 +3481,7 @@ function cgd1Encode(samples, codec, rate) {
 			index=Math.max(0,Math.min(88,index+changes[code&7]));
 			output[24+(i>>1)] |= code << ((i&1)*4);
 		}
-		else output[24+i] = cgd1Compand(sample,codec);
+		
 	}
 	return output;
 }
@@ -3608,6 +3602,7 @@ async function cgd1UploadPcm() {
 		const active = await cgd1Call(1, new Uint8Array());
 		if(active.getUint32(11, true) !== pcm.length || active.getUint32(15, true) !== crc)
 			throw new Error('Active ringtone metadata does not match the file');
+		$('cgd1Sound').value = '0';
 		$('cgd1UploadProgress').value = 100;
 		$('cgd1Status').textContent = '100% — ringtone saved, CRC verified, active (' + pcm.length + ' B)';
 		addLog('Ringtone transfer OK; CRC32 ' + crc.toString(16).padStart(8, '0'));
