@@ -1880,7 +1880,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v84.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v85.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2860,7 +2860,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v84.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v85.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3182,9 +3182,9 @@ async function cgd1Refresh() {
 	cgd1Refreshing = true;
 	try {
 		await cgd1ReadSettings();
-		$('cgd1Sound').disabled = cfg.ver < 0x82;
+		$('cgd1Sound').disabled = cfg.ver < 0x85;
 		$('cgd1DumpButton').disabled = cfg.ver < 0x82;
-		if(cfg.ver >= 0x82) $('cgd1Sound').value = String((await cgd1Call(0x1d,new Uint8Array())).getUint8(3));
+		if(cfg.ver >= 0x85) $('cgd1Sound').value = String((await cgd1Call(0x1d,new Uint8Array())).getUint8(3));
 		await cgd1ReadFlash();
 		await cgd1ReadNight();
 		cgd1Slider('cgd1LightSeconds', (await cgd1Call(0x1c,new Uint8Array())).getUint8(3));
@@ -3197,7 +3197,7 @@ function cgd1AlarmPanel() {
 	const slots = Array.from({length:16}, (_, i) => '<option value="'+i+'">Slot '+i+'</option>').join('');
 	const days = [[0,'Once'],[31,'Mon–Fri'],[96,'Sat–Sun'],[127,'Every day'],[1,'Mon'],[2,'Tue'],[4,'Wed'],[8,'Thu'],[16,'Fri'],[32,'Sat'],[64,'Sun']];
 	return '<br>Temperature: <select id="cfg_flg_cf"><option value="0">°C</option><option value="1">°F</option></select> ' +
-		'<label>Screen Off <input type="checkbox" id="cfg_scr_off"></label> <label>12-hour clock <input type="checkbox" id="cfg_flg_am_pm"></label><br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
+		'<label>Screen Off <input type="checkbox" id="cfg_scr_off"></label> <label>12-hour clock <input type="checkbox" id="cfg_flg_am_pm"></label> <label>CN / EN <input type="checkbox" id="cgd1Chinese" title="Checked: Chinese; unchecked: English" onchange="cgd1SetLanguage()"></label> <label>Disable date <input type="checkbox" id="cgd1HideDate" onchange="cgd1SetHideDate()"></label><br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
 		toggle('cgd1AlarmEnabled', '', false) + '<input id="cgd1AlarmTime" type="time" value="07:00"> ' +
 		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
@@ -3206,16 +3206,16 @@ function cgd1AlarmPanel() {
 		'<label>Backlight <input id="cgd1Brightness" type="range" min="0" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
 		'<label>Backlight duration <input id="cgd1LightSeconds" type="range" min="0" max="30" value="10" oninput="this.nextElementSibling.value=this.value" onchange="cgd1SetLightSeconds()"><output>10</output> s</label><br>' +
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
-		'<label>Ringtone <select id="cgd1Sound" onchange="cgd1SetSound()"><option value="0">Custom</option><option value="1">Built-in</option></select></label><br>' +
+		'<label>Ringtone <select id="cgd1Sound" onchange="cgd1SetSound()"><option value="0">Slot A</option><option value="1">Slot B</option></select></label><br>' +
 		'<label>File <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw" onchange="cgd1LoadAudio()"></label><br>' +
 		'<span id="cgd1FlashInfo" role="status">Reading SPI flash…</span><br>' +
-		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option></select></label> ' +
+		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">QOA</option><option value="5">SEA 2-bit</option><option value="6">SEA 3-bit</option><option value="7">SEA 4-bit</option></select></label> ' +
 		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option><option value="24000">24000</option><option value="32000">32000</option></select></label> ' +
 		'<label>From <input id="cgd1TrimStart" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> <label>To <input id="cgd1TrimEnd" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> s<br>' +
 		'<span id="cgd1AudioInfo" role="status"></span><br>' +
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> <button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
 		'<progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span><br>' +
-		'<select id="cgd1TargetSlot"><option value="0">Auto</option><option value="1">Slot 0</option><option value="2">Slot 1</option></select> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button><br>' +
+		'<select id="cgd1TargetSlot"><option value="1">Slot A</option><option value="2">Slot B</option></select> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button><br>' +
 		'<button id="cgd1DumpButton" type="button" onclick="cgd1DumpSpi()">Dump SPI flash</button>';
 }
 let cgd1Dump = null;
@@ -3304,12 +3304,22 @@ async function cgd1DumpSpi() {
 		$('cgd1DumpButton').textContent = 'Dump SPI flash';
 	}
 }
+async function cgd1SetLanguage() {
+	try {
+		const r=await cgd1Call(1,new Uint8Array());
+		await cgd1Call(2,new Uint8Array([r.getUint8(4),r.getUint8(5),$('cgd1Chinese').checked?1:0,0,0,r.getUint8(10)&1]));
+		addLog('OK');
+	}catch(error){addLog(error.message);}
+}
+async function cgd1SetHideDate() {
+	try{await cgd1Call(0x20,new Uint8Array([$('cgd1HideDate').checked?1:0]));addLog('OK');}catch(error){addLog(error.message);}
+}
 async function cgd1SetSound() {
 	try {
 		const value = Number($('cgd1Sound').value);
 		const r = await cgd1Call(0x1d,new Uint8Array([value]));
 		if(r.getUint8(3) !== value) throw new Error('Ringtone source readback mismatch');
-	} catch(error) { addLog('Ringtone source: ' + error.message); }
+	} catch(error) { addLog('Ringtone slot: ' + error.message); $('cgd1Sound').value=String((await cgd1Call(0x1d,new Uint8Array())).getUint8(3)); }
 }
 let cgd1SliderPending = new Set(), cgd1SliderBusy = false;
 function cgd1QueueSlider(kind) {
@@ -3407,6 +3417,8 @@ async function cgd1ReadSettings() {
 		cgd1Slider('cgd1Volume', r.getUint8(5));
 		cgd1Slider('cgd1Brightness', r.getUint8(4));
 		$('cfg_flg_am_pm').checked = !!(r.getUint8(10) & 1);
+		$('cgd1Chinese').checked = r.getUint8(6) === 1;
+		$('cgd1HideDate').checked = !!(await cgd1Call(0x20,new Uint8Array())).getUint8(3);
 		$('cgd1AlarmMaster').value = (r.getUint8(10) & 2) ? '0' : '1';
 	} catch(error) { addLog('CGD1 settings: '+error.message); }
 }
@@ -3520,9 +3532,56 @@ async function cgd1LoadAudio() {
 		cgd1AudioOptions();
 	} catch(error) { $('cgd1AudioInfo').textContent = error.message; }
 }
+const cgd1LmsTables = {"qoa": [[1, -1, 3, -3, 5, -5, 7, -7], [5, -5, 18, -18, 32, -32, 49, -49], [16, -16, 53, -53, 95, -95, 147, -147], [34, -34, 113, -113, 203, -203, 315, -315], [63, -63, 210, -210, 378, -378, 588, -588], [104, -104, 345, -345, 621, -621, 966, -966], [158, -158, 528, -528, 950, -950, 1477, -1477], [228, -228, 760, -760, 1368, -1368, 2128, -2128], [316, -316, 1053, -1053, 1895, -1895, 2947, -2947], [422, -422, 1405, -1405, 2529, -2529, 3934, -3934], [548, -548, 1828, -1828, 3290, -3290, 5117, -5117], [696, -696, 2320, -2320, 4176, -4176, 6496, -6496], [868, -868, 2893, -2893, 5207, -5207, 8099, -8099], [1064, -1064, 3548, -3548, 6386, -6386, 9933, -9933], [1286, -1286, 4288, -4288, 7718, -7718, 12005, -12005], [1536, -1536, 5120, -5120, 9216, -9216, 14336, -14336]], "sea": [[[1, 4], [8, 28], [27, 96], [62, 224], [120, 432], [205, 736], [322, 1156], [475, 1704], [670, 2404], [911, 3268], [1203, 4316], [1550, 5560], [1957, 7020], [2428, 8712], [2968, 10648], [3582, 12852]], [[1, 3, 5, 7], [5, 15, 27, 42], [16, 53, 95, 147], [36, 120, 216, 336], [68, 225, 405, 630], [113, 375, 675, 1050], [174, 580, 1044, 1624], [253, 843, 1517, 2359], [352, 1173, 2111, 3283], [473, 1575, 2835, 4410], [617, 2058, 3704, 5761], [788, 2628, 4730, 7357], [986, 3288, 5918, 9205], [1214, 4045, 7281, 11326], [1472, 4908, 8834, 13741], [1764, 5880, 10584, 16464]], [[1, 3, 5, 7, 9, 11, 13, 15], [5, 15, 27, 39, 51, 63, 75, 90], [14, 45, 81, 117, 153, 189, 225, 270], [29, 98, 176, 254, 332, 410, 488, 585], [53, 175, 315, 455, 595, 735, 875, 1050], [86, 285, 513, 741, 969, 1197, 1425, 1710], [128, 428, 770, 1112, 1454, 1796, 2138, 2565], [183, 610, 1098, 1586, 2074, 2562, 3050, 3660], [251, 835, 1503, 2171, 2839, 3507, 4175, 5010], [331, 1103, 1985, 2867, 3749, 4631, 5513, 6615], [426, 1420, 2556, 3692, 4828, 5964, 7100, 8520], [536, 1788, 3218, 4648, 6078, 7508, 8938, 10725], [662, 2208, 3974, 5740, 7506, 9272, 11038, 13245], [806, 2688, 4838, 6988, 9138, 11288, 13438, 16125], [968, 3225, 5805, 8385, 10965, 13545, 16125, 19350], [1148, 3825, 6885, 9945, 13005, 16065, 19125, 22950]]]};
+function cgd1LmsPayloadBytes(codec, frames) {
+	const full=Math.floor(frames/5120),rest=frames%5120;
+	const chunk=n=>codec===4?24+Math.ceil(n/20)*8:20+Math.ceil(Math.ceil(n/20)/2)+Math.ceil(n*(codec-3)/8);
+	return (codec===4?8:22)+full*chunk(5120)+(rest?chunk(rest):0);
+}
+function cgd1LmsEncode(samples,codec,rate) {
+	const frames=samples.length,qoa=codec===4,bits=qoa?3:codec-3;
+	const output=new Uint8Array(cgd1LmsPayloadBytes(codec,frames)),view=new DataView(output.buffer);
+	let at=qoa?8:22;
+	if(qoa){output.set([113,111,97,102]);view.setUint32(4,frames);}
+	else {output.set([115,101,97,99,1,1]);view.setUint16(6,20+128+5120*bits/8,true);view.setUint16(8,5120,true);view.setUint32(10,rate,true);view.setUint32(14,frames,true);}
+	let history=[0,0,0,0],weights=[0,0,-8192,16384];
+	const clamp=x=>Math.max(-32768,Math.min(32767,x));
+	const table=qoa?cgd1LmsTables.qoa:cgd1LmsTables.sea[bits-2].map(row=>row.flatMap(x=>[x,-x]));
+	const put=(array,pos,value,count)=>{for(let bit=count-1;bit>=0;bit--){array[pos.bit>>3]|=((value>>>bit)&1)<<(7-(pos.bit&7));pos.bit++;}};
+	for(let start=0;start<frames;start+=5120) {
+		const n=Math.min(5120,frames-start),slices=Math.ceil(n/20);
+		if(qoa){output[at]=1;output[at+1]=rate>>>16;output[at+2]=rate>>>8;output[at+3]=rate;view.setUint16(at+4,n);view.setUint16(at+6,24+slices*8);at+=8;}
+		else {output.set([1,0x40|bits,20,0x5a],at);at+=4;}
+		history=history.map(x=>(x<<16)>>16);weights=weights.map(x=>(x<<16)>>16);
+		for(const value of [...history,...weights]){view.setInt16(at,value,!qoa);at+=2;}
+		const scales=new Uint8Array(Math.ceil(slices/2)),residuals=new Uint8Array(Math.ceil(n*bits/8)),rs={bit:0};
+		for(let slice=0;slice<slices;slice++) {
+			const len=Math.min(20,n-slice*20);let best=null;
+			for(let sf=0;sf<16;sf++) {
+				let h=history.slice(),w=weights.slice(),error=0,codes=[];
+				for(let i=0;i<len;i++) {
+					let sum=0;for(let j=0;j<4;j++)sum=(sum+Math.imul(h[j],w[j]))|0;
+					const predicted=sum>>13,target=clamp(Math.round(samples[start+slice*20+i]*32768));
+					let code=0,distance=Infinity;
+					for(let q=0;q<table[sf].length;q++){const diff=target-clamp(predicted+table[sf][q]),score=diff*diff;if(score<distance){distance=score;code=q;}}
+					const residual=table[sf][code],value=clamp(predicted+residual);error+=distance;codes.push(code);
+					for(let j=0;j<4;j++)w[j]+=h[j]<0?-(residual>>4):residual>>4;
+					h=[h[1],h[2],h[3],value];
+				}
+				if(!best||error<best.error)best={error,sf,h,w,codes};
+			}
+			history=best.h;weights=best.w;
+			if(qoa){const data=new Uint8Array(8),pos={bit:0};put(data,pos,best.sf,4);for(const code of best.codes)put(data,pos,code,3);output.set(data,at);at+=8;}
+			else {scales[slice>>1]|=best.sf<<((slice&1)?0:4);for(const code of best.codes)put(residuals,rs,code,bits);}
+		}
+		if(!qoa){output.set(scales,at);at+=scales.length;output.set(residuals,at);at+=residuals.length;}
+	}
+	return output;
+}
 function cgd1MaxFrames(codec, slot) {
 	if(!Number.isSafeInteger(slot) || slot <= 24) return 0;
 	const payload = slot - 24;
+	if(codec>=4){let low=0,high=payload*4;while(low<high){const mid=Math.ceil((low+high)/2);if(cgd1LmsPayloadBytes(codec,mid)<=payload)low=mid;else high=mid-1;}return codec===4?low:Math.floor(low/20)*20;}
 	return codec === 2 ? Math.floor(payload / 2) : codec === 3 ? payload * 2 : payload;
 }
 function cgd1AudioOptions() {
@@ -3548,15 +3607,19 @@ function cgd1AudioOptions() {
 	$('cgd1AudioInfo').textContent = text;
 }
 function cgd1Encode(samples, codec, rate) {
-	if(codec < 1 || codec > 3) throw new Error('Unsupported codec');
+	if(codec < 1 || codec > 7) throw new Error('Unsupported codec');
 	if(cgd1Geometry) samples = samples.subarray(0,cgd1MaxFrames(codec,cgd1Geometry.slot));
-	const bytes = codec === 2 ? samples.length * 2 : (codec === 3) ? Math.ceil(samples.length/2) : samples.length;
+	if(codec>=5)samples=samples.subarray(0,Math.floor(samples.length/20)*20);
+	if(!samples.length)throw new Error('Selected audio is too short');
+	const encodedLms=codec>=4?cgd1LmsEncode(samples,codec,rate):null;
+	const bytes = encodedLms ? encodedLms.length : codec === 2 ? samples.length * 2 : (codec === 3) ? Math.ceil(samples.length/2) : samples.length;
 	const output = new Uint8Array(24 + bytes), view = new DataView(output.buffer);
 	output.set([67,71,68,65,1,codec,1,0]);
 	view.setUint32(8,rate,true);
 	view.setUint32(12,samples.length,true);
 	view.setUint32(16,bytes,true);
 	view.setUint32(20,cgd1Crc32(output.slice(0,20)),true);
+	if(encodedLms){output.set(encodedLms,24);return output;}
 	const steps = [7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767];
 	const changes = [-1,-1,-1,-1,2,4,6,8];
 	let predictor=0,index=0;
@@ -3695,7 +3758,7 @@ async function cgd1UploadPcm() {
 		const active = await cgd1Call(1, new Uint8Array());
 		if(active.getUint32(11, true) !== pcm.length || active.getUint32(15, true) !== crc)
 			throw new Error('Active ringtone metadata does not match the file');
-		$('cgd1Sound').value = '0';
+		$('cgd1Sound').value = String(active.getUint8(9));
 		$('cgd1UploadProgress').value = 100;
 		$('cgd1Status').textContent = '100% — ringtone saved, CRC verified, active (' + pcm.length + ' B)';
 		addLog('Ringtone transfer OK; CRC32 ' + crc.toString(16).padStart(8, '0'));
