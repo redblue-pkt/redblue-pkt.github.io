@@ -1880,7 +1880,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v82.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v83.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2860,7 +2860,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v82.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v83.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3210,7 +3210,7 @@ function cgd1AlarmPanel() {
 		'<label>File <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw" onchange="cgd1LoadAudio()"></label><br>' +
 		'<span id="cgd1FlashInfo" role="status">Reading SPI flash…</span><br>' +
 		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option></select></label> ' +
-		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option><option value="32000">32000 (test)</option></select></label> ' +
+		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option><option value="32000">32000 → 16000</option></select></label> ' +
 		'<label>From <input id="cgd1TrimStart" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> <label>To <input id="cgd1TrimEnd" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> s<br>' +
 		'<span id="cgd1AudioInfo" role="status"></span><br>' +
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> <button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
