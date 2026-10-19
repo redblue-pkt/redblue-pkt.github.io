@@ -156,6 +156,7 @@ function disconnect() {
 }
 
 function onDisconnected() {
+	if(cgd1Dump) cgd1Dump.reject(new Error('Disconnected during SPI dump'));
 	addLog('Disconnected.');
 	$("MAC").innerHTML = '';
 	$("ldfile").hidden = true;
@@ -1111,6 +1112,7 @@ function CustomBlkParse(value) {
 	let blkid = value.getUint8(0);
 	if(blkid == 0x90 && len >= 2) {
 		let sub = value.getUint8(1);
+		if(sub === 0x1f) { cgd1DumpReceive(value); return; }
 		let pending = cgd1Replies.get(sub);
 		if(pending) {
 			clearTimeout(pending.timer);
@@ -1878,7 +1880,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v81.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v82.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2858,7 +2860,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v81.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v82.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3031,6 +3033,7 @@ var otaCharSend = function(data) {
 }
 
 function sendCustomSetting(data){
+	if(cgd1Uploading || cgd1Dump) { addLog('Settings locked during SPI transfer'); return; }
 	if((hexToBytes(data))[0] == 0x35)
 		flg_memo_act = true;
 	mainCharSend(data, settingsCharacteristics).then(function() {
@@ -3141,6 +3144,9 @@ function writeDevTime(time) {
 	}).catch(error => addLog('Date/time error: ' + error));
 }
 function cgd1Call(sub, payload) {
+	if(cgd1Dump && sub !== 0x1e) return Promise.reject(new Error('Settings locked during SPI dump'));
+	if(cgd1Uploading && ![1,0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x18].includes(sub))
+		return Promise.reject(new Error('Settings locked during ringtone transfer'));
 	if(!settingsCharacteristics) return Promise.reject(new Error('Device not connected'));
 	if(cgd1Replies.has(sub)) return Promise.reject(new Error('CGD1 command already pending'));
 	return new Promise((resolve, reject) => {
@@ -3176,8 +3182,9 @@ async function cgd1Refresh() {
 	cgd1Refreshing = true;
 	try {
 		await cgd1ReadSettings();
-		$('cgd1Sound').disabled = cfg.ver < 0x81;
-		if(cfg.ver >= 0x81) $('cgd1Sound').value = String((await cgd1Call(0x1d,new Uint8Array())).getUint8(3));
+		$('cgd1Sound').disabled = cfg.ver < 0x82;
+		$('cgd1DumpButton').disabled = cfg.ver < 0x82;
+		if(cfg.ver >= 0x82) $('cgd1Sound').value = String((await cgd1Call(0x1d,new Uint8Array())).getUint8(3));
 		await cgd1ReadFlash();
 		await cgd1ReadNight();
 		cgd1Slider('cgd1LightSeconds', (await cgd1Call(0x1c,new Uint8Array())).getUint8(3));
@@ -3196,10 +3203,10 @@ function cgd1AlarmPanel() {
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
 		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button> <button type="button" onclick="cgd1DeleteAlarm()">Del alarm</button><br>' +
 		'<label>Volume <input id="cgd1Volume" type="range" min="1" max="5" step="1" value="2" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;volume&quot;)"><output>2</output></label><br>' +
-		'<label>Backlight <input id="cgd1Brightness" type="range" min="1" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
+		'<label>Backlight <input id="cgd1Brightness" type="range" min="0" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
 		'<label>Backlight duration <input id="cgd1LightSeconds" type="range" min="0" max="30" value="10" oninput="this.nextElementSibling.value=this.value" onchange="cgd1SetLightSeconds()"><output>10</output> s</label><br>' +
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
-		'<label>Ringtone <select id="cgd1Sound" onchange="cgd1SetSound()"><option value="0">Custom</option><option value="1">Internal digital</option><option value="2">Internal mechanical</option></select></label><br>' +
+		'<label>Ringtone <select id="cgd1Sound" onchange="cgd1SetSound()"><option value="0">Custom</option><option value="1">Built-in</option></select></label><br>' +
 		'<label>File <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw" onchange="cgd1LoadAudio()"></label><br>' +
 		'<span id="cgd1FlashInfo" role="status">Reading SPI flash…</span><br>' +
 		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option></select></label> ' +
@@ -3208,7 +3215,94 @@ function cgd1AlarmPanel() {
 		'<span id="cgd1AudioInfo" role="status"></span><br>' +
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> <button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
 		'<progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span><br>' +
-		'<select id="cgd1TargetSlot"><option value="0">Auto</option><option value="1">Slot 0</option><option value="2">Slot 1</option></select> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button>';
+		'<select id="cgd1TargetSlot"><option value="0">Auto</option><option value="1">Slot 0</option><option value="2">Slot 1</option></select> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button><br>' +
+		'<button id="cgd1DumpButton" type="button" onclick="cgd1DumpSpi()">Dump SPI flash</button>';
+}
+let cgd1Dump = null;
+const cgd1DisabledControls = new Map();
+function cgd1LockControls(on) {
+	if(on) {
+		for(const control of document.querySelectorAll('button,input,select')) {
+			if(control.getAttribute('onclick') === 'disconnect();' ||
+				(cgd1Dump && control.id === 'cgd1DumpButton')) continue;
+			if(!cgd1DisabledControls.has(control)) cgd1DisabledControls.set(control,control.disabled);
+			control.disabled = true;
+		}
+	} else {
+		for(const [control,disabled] of cgd1DisabledControls) control.disabled = disabled;
+		cgd1DisabledControls.clear();
+	}
+}
+function cgd1DumpReceive(value) {
+	const state = cgd1Dump;
+	if(!state || state.finished) return;
+	try {
+		if(value.byteLength < 7) throw new Error('Short SPI dump packet');
+		const status = value.getUint8(2), offset = value.getUint32(3,true);
+		if(offset !== state.offset) throw new Error('SPI dump offset mismatch');
+		clearTimeout(state.timer);
+		state.timer = setTimeout(()=>state.reject(new Error('SPI dump timeout')),30000);
+		if(status === 0) {
+			const count = value.byteLength - 7;
+			if(!count || count > 13 || offset + count > state.data.length) throw new Error('Invalid SPI dump length');
+			for(let i=0;i<count;i++) {
+				const byte = value.getUint8(7+i);
+				state.data[state.offset++] = byte;
+				state.crc ^= byte;
+				for(let bit=0;bit<8;bit++) state.crc = (state.crc>>>1)^((state.crc&1)?0xedb88320:0);
+			}
+			const percent = Math.floor(state.offset * 100 / state.data.length);
+			if(percent !== state.percent) {
+				state.percent = percent;
+				$('cgd1DumpButton').textContent = 'Dump SPI flash '+percent+'% (Stop)';
+			}
+		} else if(status === 1) {
+			if(value.byteLength !== 11 || state.offset !== state.data.length ||
+				((state.crc^0xffffffff)>>>0) !== value.getUint32(7,true)) throw new Error('SPI dump CRC mismatch');
+			state.finished = true;
+			state.resolve();
+		} else throw new Error('SPI flash read failed');
+	} catch(error) { state.finished = true; state.reject(error); }
+}
+async function cgd1DumpSpi() {
+	if(cgd1Dump) {
+		const state = cgd1Dump;
+		try { await cgd1Call(0x1e,new Uint8Array([0])); }
+		catch(error) { addLog('SPI dump cancel: '+error.message); }
+		finally { state.reject(new Error('SPI dump cancelled')); }
+		return;
+	}
+	if(cgd1Uploading) return;
+	let state;
+	try {
+		await cgd1ReadFlash();
+		const capacity = cgd1Geometry.capacity;
+		if(!Number.isSafeInteger(capacity) || capacity < 4096 || capacity > 0x1000000) throw new Error('Invalid SPI capacity');
+		state = {data:new Uint8Array(capacity),offset:0,crc:0xffffffff,percent:-1,finished:false};
+		const done = new Promise((resolve,reject)=>{state.resolve=resolve;state.reject=reject;});
+		done.catch(()=>{});
+		cgd1Dump = state;
+		cgd1LockControls(true);
+		state.timer = setTimeout(()=>state.reject(new Error('SPI dump timeout')),30000);
+		const reply = await cgd1Call(0x1e,new Uint8Array([1]));
+		if(reply.getUint32(3,true) !== capacity) throw new Error('SPI capacity changed');
+		await done;
+		const url = URL.createObjectURL(new Blob([state.data],{type:'application/octet-stream'}));
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = 'CGD1_SPI_'+capacity+'.bin';
+		link.click();
+		setTimeout(()=>URL.revokeObjectURL(url),60000);
+		addLog('SPI dump saved: '+capacity+' B, CRC verified');
+	} catch(error) {
+		addLog('SPI dump: '+error.message);
+		if(state) { try { await cgd1Call(0x1e,new Uint8Array([0])); } catch(ignore) {} }
+	} finally {
+		if(state) clearTimeout(state.timer);
+		cgd1Dump = null;
+		cgd1LockControls(false);
+		$('cgd1DumpButton').textContent = 'Dump SPI flash';
+	}
 }
 async function cgd1SetSound() {
 	try {
@@ -3556,7 +3650,7 @@ async function cgd1WaitUpload(state, expectedBytes, label, total) {
 	throw new Error('Device transfer/verification timeout');
 }
 async function cgd1UploadPcm() {
-	if(cgd1Uploading)
+	if(cgd1Uploading || cgd1Dump)
 		return;
 	const file = $('cgd1PcmFile').files[0];
 	if(!file) {
@@ -3564,8 +3658,7 @@ async function cgd1UploadPcm() {
 		return;
 	}
 	cgd1Uploading = true;
-	$('cgd1UploadButton').disabled = true;
-	$('cgd1PcmFile').disabled = true;
+	cgd1LockControls(true);
 	try {
 		$('cgd1Status').textContent = 'Preparing audio…';
 		await cgd1ReadFlash();
@@ -3611,8 +3704,7 @@ async function cgd1UploadPcm() {
 		addLog('Ringtone transfer FAILED: ' + error.message);
 	} finally {
 		cgd1Uploading = false;
-		$('cgd1UploadButton').disabled = false;
-		$('cgd1PcmFile').disabled = false;
+		cgd1LockControls(false);
 	}
 }
 function setDevTime() {
