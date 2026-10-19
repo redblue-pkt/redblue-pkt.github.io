@@ -1880,7 +1880,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v85.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v86.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2860,7 +2860,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v85.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v86.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3197,7 +3197,7 @@ function cgd1AlarmPanel() {
 	const slots = Array.from({length:16}, (_, i) => '<option value="'+i+'">Slot '+i+'</option>').join('');
 	const days = [[0,'Once'],[31,'Mon–Fri'],[96,'Sat–Sun'],[127,'Every day'],[1,'Mon'],[2,'Tue'],[4,'Wed'],[8,'Thu'],[16,'Fri'],[32,'Sat'],[64,'Sun']];
 	return '<br>Temperature: <select id="cfg_flg_cf"><option value="0">°C</option><option value="1">°F</option></select> ' +
-		'<label>Screen Off <input type="checkbox" id="cfg_scr_off"></label> <label>12-hour clock <input type="checkbox" id="cfg_flg_am_pm"></label> <label>CN / EN <input type="checkbox" id="cgd1Chinese" title="Checked: Chinese; unchecked: English" onchange="cgd1SetLanguage()"></label> <label>Disable date <input type="checkbox" id="cgd1HideDate" onchange="cgd1SetHideDate()"></label><br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
+		'<label>Screen Off <input type="checkbox" id="cfg_scr_off"></label> <label>12-hour clock <input type="checkbox" id="cfg_flg_am_pm"></label> <label>Language: <select id="cgd1Language" onchange="cgd1SetLanguage()"><option value="0">EN</option><option value="1">CN</option></select></label> <label>Disable date <input type="checkbox" id="cgd1HideDate" onchange="cgd1SetHideDate()"></label><br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
 		toggle('cgd1AlarmEnabled', '', false) + '<input id="cgd1AlarmTime" type="time" value="07:00"> ' +
 		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
@@ -3216,7 +3216,7 @@ function cgd1AlarmPanel() {
 		'<button type="button" onclick="cgd1Call(5,new Uint8Array([1])).catch(e=>addLog(e.message))">Test sound</button> <button type="button" onclick="cgd1Call(5,new Uint8Array([0])).catch(e=>addLog(e.message))">Stop</button><br>' +
 		'<progress id="cgd1UploadProgress" max="100" value="0" hidden></progress> <span id="cgd1Status" role="status" aria-live="polite"></span><br>' +
 		'<select id="cgd1TargetSlot"><option value="1">Slot A</option><option value="2">Slot B</option></select> <button id="cgd1UploadButton" type="button" onclick="cgd1UploadPcm()">Upload</button><br>' +
-		'<button id="cgd1DumpButton" type="button" onclick="cgd1DumpSpi()">Dump SPI flash</button>';
+		'<button id="cgd1DumpButton" type="button" onclick="cgd1DumpSpi()">Dump SPI flash</button> <button id="cgd1SaveDumpButton" type="button" hidden onclick="cgd1SaveDump()">Save SPI dump…</button>';
 }
 let cgd1Dump = null;
 const cgd1DisabledControls = new Map();
@@ -3264,6 +3264,31 @@ function cgd1DumpReceive(value) {
 		} else throw new Error('SPI flash read failed');
 	} catch(error) { state.finished = true; state.reject(error); }
 }
+let cgd1DumpResult = null;
+async function cgd1SaveDump() {
+	if(!cgd1DumpResult) return;
+	const data = cgd1DumpResult;
+	const name = 'CGD1_SPI_'+data.length+'.bin';
+	try {
+		if(window.showSaveFilePicker) {
+			const handle = await window.showSaveFilePicker({suggestedName:name,types:[{description:'SPI flash binary',accept:{'application/octet-stream':['.bin']}}]});
+			const file = await handle.createWritable();
+			await file.write(data);
+			await file.close();
+			addLog('SPI dump saved');
+		} else {
+			const url = URL.createObjectURL(new Blob([data],{type:'application/octet-stream'}));
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = name;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			setTimeout(()=>URL.revokeObjectURL(url),60000);
+			addLog('SPI dump download started. Save location follows browser download settings.');
+		}
+	} catch(error) { if(error.name !== 'AbortError') addLog('SPI dump save: '+error.message); }
+}
 async function cgd1DumpSpi() {
 	if(cgd1Dump) {
 		const state = cgd1Dump;
@@ -3287,13 +3312,9 @@ async function cgd1DumpSpi() {
 		const reply = await cgd1Call(0x1e,new Uint8Array([1]));
 		if(reply.getUint32(3,true) !== capacity) throw new Error('SPI capacity changed');
 		await done;
-		const url = URL.createObjectURL(new Blob([state.data],{type:'application/octet-stream'}));
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = 'CGD1_SPI_'+capacity+'.bin';
-		link.click();
-		setTimeout(()=>URL.revokeObjectURL(url),60000);
-		addLog('SPI dump saved: '+capacity+' B, CRC verified');
+		cgd1DumpResult = state.data;
+		$('cgd1SaveDumpButton').hidden = false;
+		addLog('SPI dump ready: '+capacity+' B, CRC verified. Click Save SPI dump.');
 	} catch(error) {
 		addLog('SPI dump: '+error.message);
 		if(state) { try { await cgd1Call(0x1e,new Uint8Array([0])); } catch(ignore) {} }
@@ -3307,7 +3328,7 @@ async function cgd1DumpSpi() {
 async function cgd1SetLanguage() {
 	try {
 		const r=await cgd1Call(1,new Uint8Array());
-		await cgd1Call(2,new Uint8Array([r.getUint8(4),r.getUint8(5),$('cgd1Chinese').checked?1:0,0,0,r.getUint8(10)&1]));
+		await cgd1Call(2,new Uint8Array([r.getUint8(4),r.getUint8(5),Number($('cgd1Language').value),0,0,r.getUint8(10)&1]));
 		addLog('OK');
 	}catch(error){addLog(error.message);}
 }
@@ -3417,7 +3438,7 @@ async function cgd1ReadSettings() {
 		cgd1Slider('cgd1Volume', r.getUint8(5));
 		cgd1Slider('cgd1Brightness', r.getUint8(4));
 		$('cfg_flg_am_pm').checked = !!(r.getUint8(10) & 1);
-		$('cgd1Chinese').checked = r.getUint8(6) === 1;
+		$('cgd1Language').value = r.getUint8(6) === 1 ? '1' : '0';
 		$('cgd1HideDate').checked = !!(await cgd1Call(0x20,new Uint8Array())).getUint8(3);
 		$('cgd1AlarmMaster').value = (r.getUint8(10) & 2) ? '0' : '1';
 	} catch(error) { addLog('CGD1 settings: '+error.message); }
