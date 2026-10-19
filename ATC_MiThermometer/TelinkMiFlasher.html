@@ -1878,7 +1878,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v78.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v79.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null) {
@@ -2858,7 +2858,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v78.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v79.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3345,7 +3345,7 @@ async function cgd1ReadFlash() {
 		const r = await cgd1Call(0x18, new Uint8Array());
 		const id = Array.from({length:3}, (_, i) => r.getUint8(3+i));
 		const capacity = r.getUint32(6, true), slot = r.getUint32(10, true);
-		if(!capacity || slot * 2 !== capacity || slot < 32768 || slot % 4096 || r.getUint8(17) !== 1)
+		if(!capacity || (slot * 2 !== capacity && slot * 2 + 0x6000 !== capacity) || slot < 4096 || slot % 4096 || r.getUint8(17) !== 1)
 			throw new Error('Invalid SPI geometry');
 		cgd1Geometry = {id, capacity, slot, codecs:r.getUint16(14,true), rates:r.getUint8(16)};
 		const names = {239:'Winbond',200:'GigaDevice',11:'XTX',133:'Puya',194:'Macronix',157:'ISSI',28:'EON',191:'SST',31:'Adesto/Atmel',161:'Fudan',104:'BOYA',229:'Dosilicon'};
