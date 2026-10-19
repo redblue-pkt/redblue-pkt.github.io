@@ -1121,7 +1121,7 @@ function CustomBlkParse(value) {
 			}
 			else pending.resolve(value);
 		}
-		if(sub === 0x15 && value.getUint8(2) && $('cgd1Status'))
+		if(cgd1Uploading && sub === 0x15 && value.getUint8(2) && $('cgd1Status'))
 			$('cgd1Status').textContent = 'Transfer rejected by device; checking status…';
 		return;
 	}
@@ -3223,7 +3223,7 @@ async function cgd1FlushSliders() {
 			if(kind === 'volume') await cgd1Call(0x1b,new Uint8Array([Number($('cgd1Volume').value)]));
 			else await cgd1Call(0x1a,new Uint8Array());
 		}
-	} catch(error) { $('cgd1Status').textContent = error.message; }
+	} catch(error) { addLog(error.message); }
 	finally { cgd1SliderBusy = false; }
 }
 async function cgd1SetLightSeconds() {
@@ -3231,7 +3231,7 @@ async function cgd1SetLightSeconds() {
 		const seconds = Number($('cgd1LightSeconds').value);
 		const r = await cgd1Call(0x1c,new Uint8Array([seconds]));
 		if(r.getUint8(3) !== seconds) throw new Error('Readback mismatch');
-	} catch(error) { $('cgd1Status').textContent = error.message; }
+	} catch(error) { addLog(error.message); }
 }
 async function cgd1DeleteAlarm() {
 	try {
@@ -3240,8 +3240,8 @@ async function cgd1DeleteAlarm() {
 		const saved = await cgd1Call(3,new Uint8Array([slot]));
 		if(saved.getUint8(4)) throw new Error('Alarm deletion readback failed');
 		await cgd1ReadAlarm();
-		$('cgd1Status').textContent = 'Alarm deleted';
-	} catch(error) { $('cgd1Status').textContent = error.message; }
+		addLog('Alarm deleted');
+	} catch(error) { addLog(error.message); }
 }
 async function cgd1ReadAlarm() {
 	try {
@@ -3279,10 +3279,9 @@ async function cgd1WriteAlarm() {
 		if(enabled && master && !runtime.getUint8(3))
 			throw new Error('Date/time is invalid; use the existing Set Time button');
 		const message = 'Alarm saved';
-		$('cgd1Status').textContent = message;
 		addLog(message);
 	} catch(error) {
-		$('cgd1Status').textContent = 'Alarm: ' + error.message;
+		addLog('Alarm: ' + error.message);
 		addLog('Alarm: ' + error.message);
 	}
 }
@@ -3320,9 +3319,9 @@ async function cgd1StoreAudioSettings(kind = 'all') {
 async function cgd1SetVolume() {
 	try {
 		await cgd1StoreAudioSettings('volume');
-		$('cgd1Status').textContent = 'OK';
+		addLog('OK');
 	} catch(error) {
-		$('cgd1Status').textContent = 'Settings FAILED: ' + error.message;
+		addLog('Settings FAILED: ' + error.message);
 	}
 }
 function cgd1Crc32(bytes) {
@@ -3379,20 +3378,20 @@ async function cgd1ApplyNight() {
 		const a = minutes('cgd1NightStart'), b = minutes('cgd1NightEnd');
 		const r = await cgd1Call(0x19, new Uint8Array([Number($('cgd1NightOn').value),Number($('cgd1NightBrightness').value),a&255,a>>8,b&255,b>>8]));
 		if(r.getUint8(4) !== Number($('cgd1NightOn').value) || r.getUint8(5) !== Number($('cgd1NightBrightness').value) || r.getUint16(6,true) !== a || r.getUint16(8,true) !== b) throw new Error('Readback mismatch');
-		$('cgd1Status').textContent = 'OK';
-	} catch(error) { $('cgd1Status').textContent = error.message; }
+		addLog('OK');
+	} catch(error) { addLog(error.message); }
 }
 async function cgd1ApplyLight() {
 	try {
 		await cgd1StoreAudioSettings('light');
 		await cgd1Call(0x1a, new Uint8Array());
-		$('cgd1Status').textContent = 'OK';
-	} catch(error) { $('cgd1Status').textContent = error.message; }
+		addLog('OK');
+	} catch(error) { addLog(error.message); }
 }
 async function cgd1TestVolume() {
 	try {
 		await cgd1Call(0x1b, new Uint8Array([Number($('cgd1Volume').value)]));
-	} catch(error) { $('cgd1Status').textContent = error.message; }
+	} catch(error) { addLog(error.message); }
 }
 async function cgd1LoadAudio() {
 	try {
@@ -3595,8 +3594,8 @@ async function cgd1UploadPcm() {
 			while(offset < end) {
 				const count = Math.min(14, end - offset);
 				const packet = cgd1Join(new Uint8Array([0x90, 0x15]), cgd1Le32(offset), pcm.slice(offset, offset + count));
-				if(typeof settingsCharacteristics.writeValueWithResponse === 'function')
-					await settingsCharacteristics.writeValueWithResponse(packet);
+				if(typeof settingsCharacteristics.writeValueWithoutResponse === 'function')
+					await settingsCharacteristics.writeValueWithoutResponse(packet);
 				else
 					await settingsCharacteristics.writeValue(packet);
 				offset += count;
@@ -4566,7 +4565,7 @@ async function SendCustomConfig() {
 		try {
 			await cgd1StoreAudioSettings();
 		} catch(error) {
-			$('cgd1Status').textContent = 'Settings FAILED: ' + error.message;
+			addLog('Settings FAILED: ' + error.message);
 			return;
 		}
 	}
