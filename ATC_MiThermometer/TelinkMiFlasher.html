@@ -1884,7 +1884,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v95.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v98.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2864,7 +2864,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v95.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v98.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3212,8 +3212,8 @@ function cgd1AlarmPanel() {
 		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
 		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button> <button type="button" onclick="cgd1DeleteAlarm()">Del alarm</button><br>' +
-		'<button type="button" onclick="cgd1LightDiagnostic()">Backlight diagnostics</button><br><label>Volume <input id="cgd1Volume" type="range" min="1" max="5" step="1" value="2" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;volume&quot;)"><output>2</output></label><br>' +
-		'<label>Backlight <input id="cgd1Brightness" type="range" min="0" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
+		'<label>Volume <input id="cgd1Volume" type="range" min="1" max="5" step="1" value="2" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;volume&quot;)"><output>2</output></label><br>' +
+		'<span>CGD1 flasher v98</span><br><label>Backlight <input id="cgd1Brightness" type="range" min="0" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
 		'<label>Backlight duration <input id="cgd1LightSeconds" type="range" min="0" max="30" value="10" oninput="this.nextElementSibling.value=this.value" onchange="cgd1SetLightSeconds()"><output>10</output> s</label><br>' +
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
 		'<label>Ringtone <select id="cgd1Sound" onchange="cgd1SetSound()"><option value="0">Slot A</option><option value="1">Slot B</option></select></label><br>' +
@@ -3389,10 +3389,14 @@ async function cgd1SetSound() {
 		if(r.getUint8(3) !== value) throw new Error('Ringtone source readback mismatch');
 	} catch(error) { addLog('Ringtone slot: ' + error.message); $('cgd1Sound').value=String((await cgd1Call(0x1d,new Uint8Array())).getUint8(3)); }
 }
-let cgd1SliderPending = new Set(), cgd1SliderBusy = false;
+let cgd1SliderPending = new Set(), cgd1SliderBusy = false, cgd1SliderTimer = 0;
 function cgd1QueueSlider(kind) {
 	cgd1SliderPending.add(kind);
-	if(!cgd1SliderBusy) cgd1FlushSliders();
+	clearTimeout(cgd1SliderTimer);
+	cgd1SliderTimer = setTimeout(() => {
+		cgd1SliderTimer = 0;
+		if(!cgd1SliderBusy) cgd1FlushSliders();
+	}, 180);
 }
 async function cgd1FlushSliders() {
 	cgd1SliderBusy = true;
@@ -3400,10 +3404,13 @@ async function cgd1FlushSliders() {
 		while(cgd1SliderPending.size) {
 			const kind = cgd1SliderPending.values().next().value;
 			cgd1SliderPending.delete(kind);
-			if(kind === 'volume') await cgd1Call(5,new Uint8Array([0]));
-			await cgd1StoreAudioSettings(kind);
-			if(kind === 'volume') await cgd1Call(0x1b,new Uint8Array([Number($('cgd1Volume').value)]));
-			else await cgd1Call(0x1a,new Uint8Array());
+			if(kind === 'light') {
+				await cgd1Call(0x1a,new Uint8Array([Number($('cgd1Brightness').value)]));
+			} else {
+				await cgd1Call(5,new Uint8Array([0]));
+				await cgd1StoreAudioSettings('volume');
+				await cgd1Call(0x1b,new Uint8Array([Number($('cgd1Volume').value)]));
+			}
 		}
 	} catch(error) { addLog(error.message); }
 	finally { cgd1SliderBusy = false; }
@@ -5047,12 +5054,3 @@ async function SendCustomConfig() {
 
 </body></html>
 
-<script>
-async function cgd1LightDiagnostic() {
- try {
-  const r = await cgd1Call(0x23,new Uint8Array());
-  const names = ['saved','effective','output','fault','clockEnable','divider','pwmEnable','invert','nInvert','polarity','gpio','outputDisable','mux'];
-  addLog('BACKLIGHT '+names.map((n,i)=>n+'='+r.getUint8(i+3)).join(' ')+' cycle=0x'+r.getUint32(16,true).toString(16));
- } catch(error) { addLog('Backlight diagnostics: '+error.message); }
-}
-</script>
