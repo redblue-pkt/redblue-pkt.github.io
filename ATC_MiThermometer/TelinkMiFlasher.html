@@ -1884,7 +1884,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v99r2.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v99r3.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2864,7 +2864,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v99r2.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v99r3.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3207,7 +3207,7 @@ function cgd1AlarmPanel() {
 	const slots = Array.from({length:16}, (_, i) => '<option value="'+i+'">Slot '+i+'</option>').join('');
 	const days = [[0,'Once'],[31,'Mon–Fri'],[96,'Sat–Sun'],[127,'Every day'],[1,'Mon'],[2,'Tue'],[4,'Wed'],[8,'Thu'],[16,'Fri'],[32,'Sat'],[64,'Sun']];
 	return '<br>Temperature: <select id="cfg_flg_cf" onchange="cgd1QueueDisplay()"><option value="0">°C</option><option value="1">°F</option></select> ' +
-		'<label>Screen Off <input type="checkbox" id="cfg_scr_off" onchange="cgd1QueueDisplay()"></label> <label>12-hour clock <input type="checkbox" id="cfg_flg_am_pm" onchange="cgd1QueueDisplay()"></label> <label>Language: <select id="cgd1Language" onchange="cgd1SetLanguage()"><option value="0">EN</option><option value="1">CN</option></select></label> <label>Disable date <input type="checkbox" id="cgd1HideDate" onchange="cgd1SetHideDate()"></label><br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
+		'<label>Screen Off <input type="checkbox" id="cfg_scr_off" onchange="cgd1QueueDisplay()"></label> <label>12-hour clock <input type="checkbox" id="cfg_flg_am_pm" onchange="cgd1QueueDisplay()"></label> <label>Language: <select id="cgd1Language" onchange="cgd1SetLanguage()"><option value="0">EN</option><option value="1">CN</option></select></label><br>Alarm <select id="cgd1AlarmSlot" onchange="cgd1ReadAlarm()">'+slots+'</select> ' +
 		toggle('cgd1AlarmEnabled', '', false) + '<input id="cgd1AlarmTime" type="time" value="07:00"> ' +
 		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
@@ -3379,9 +3379,7 @@ async function cgd1SetLanguage() {
 		addLog('OK');
 	}catch(error){addLog(error.message);}
 }
-async function cgd1SetHideDate() {
-	try{await cgd1Call(0x20,new Uint8Array([$('cgd1HideDate').checked?1:0]));addLog('OK');}catch(error){addLog(error.message);}
-}
+
 async function cgd1SetSound() {
 	try {
 		const value = Number($('cgd1Sound').value);
@@ -3493,7 +3491,6 @@ async function cgd1ReadSettings() {
 		cgd1Slider('cgd1Brightness', r.getUint8(4));
 		$('cfg_flg_am_pm').checked = !!(r.getUint8(10) & 1);
 		$('cgd1Language').value = r.getUint8(6) === 1 ? '1' : '0';
-		$('cgd1HideDate').checked = !!(await cgd1Call(0x20,new Uint8Array())).getUint8(3);
 		$('cgd1AlarmMaster').value = (r.getUint8(10) & 2) ? '0' : '1';
 	} catch(error) { addLog('CGD1 settings: '+error.message); }
 }
