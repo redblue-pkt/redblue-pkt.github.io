@@ -1884,7 +1884,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v91.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v95.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2864,7 +2864,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v91.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v95.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3212,7 +3212,7 @@ function cgd1AlarmPanel() {
 		'<select id="cgd1AlarmDays">'+days.map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('')+'</select> ' +
 		toggle('cgd1AlarmSnooze', 'Snooze', true) + toggle('cgd1AlarmMaster', 'Master', true) +
 		'<button type="button" onclick="cgd1WriteAlarm()">Save alarm</button> <button type="button" onclick="cgd1DeleteAlarm()">Del alarm</button><br>' +
-		'<label>Volume <input id="cgd1Volume" type="range" min="1" max="5" step="1" value="2" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;volume&quot;)"><output>2</output></label><br>' +
+		'<button type="button" onclick="cgd1LightDiagnostic()">Backlight diagnostics</button><br><label>Volume <input id="cgd1Volume" type="range" min="1" max="5" step="1" value="2" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;volume&quot;)"><output>2</output></label><br>' +
 		'<label>Backlight <input id="cgd1Brightness" type="range" min="0" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value;cgd1QueueSlider(&quot;light&quot;)"><output>5</output></label><br>' +
 		'<label>Backlight duration <input id="cgd1LightSeconds" type="range" min="0" max="30" value="10" oninput="this.nextElementSibling.value=this.value" onchange="cgd1SetLightSeconds()"><output>10</output> s</label><br>' +
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
@@ -3616,6 +3616,7 @@ function cgd1ReadEncoded(data, name) {
 			h.getUint32(16,true) !== data.length - 24 ||
 			h.getUint32(20,true) !== cgd1Crc32(data.subarray(0,20))) throw new Error('Invalid CGDA header/CRC');
 		codec = data[5]; rate = h.getUint32(8,true); frames = h.getUint32(12,true);
+		if(codec===8) { rate=16000; frames=(data.length-24)*2; bytes=cgd1AudioHeader(codec,rate,frames,data.subarray(24)); }
 	} else if(magic.startsWith('#!AMR')) {
 		const wide = magic === '#!AMR-WB\n';
 		if(!wide && !magic.startsWith('#!AMR\n')) throw new Error('Invalid AMR signature');
@@ -3643,13 +3644,13 @@ function cgd1ReadEncoded(data, name) {
 		}
 	} else if(/\.(g722|alaw|ulaw|tsbc)$/i.test(name)) {
 		codec = /\.g722$/i.test(name) ? 8 : /\.alaw$/i.test(name) ? 4 : /\.ulaw$/i.test(name) ? 5 : 14;
-		rate = codec===14 ? 16000 : Number($('cgd1Rate').value);
+		rate = (codec===14 || codec===8) ? 16000 : Number($('cgd1Rate').value);
 		if(codec===14 && data.length%20) throw new Error('Telink SBC requires complete 20-byte frames');
-		frames = codec===14 ? data.length/20*80 : codec===8 && rate===16000 ? data.length*2 : data.length;
+		frames = codec===14 ? data.length/20*80 : codec===8 ? data.length*2 : data.length;
 		bytes = cgd1AudioHeader(codec,rate,frames,data);
 	} else return null;
 	if(!frames || !cgd1Geometry || !(cgd1Geometry.codecs & (1<<codec))) throw new Error('File codec is not compiled into this firmware');
-	const rates={8:[8000,16000],9:[8000,16000],10:[16000,32000],11:[16000],14:[16000]}[codec];
+	const rates={8:[16000],9:[8000,16000],10:[16000,32000],11:[16000],14:[16000]}[codec];
 	if(rates ? !rates.includes(rate) : rate<4000 || rate>41000) throw new Error('Unsupported codec sample rate');
 	if(bytes.length>cgd1Geometry.slot) throw new Error('Encoded file exceeds detected SPI slot');
 	return {bytes,codec,rate,frames};
@@ -3697,7 +3698,7 @@ function cgd1AudioOptions() {
 	for(const id of ['cgd1Rate','cgd1TrimStart','cgd1TrimEnd']) $(id).disabled = !!cgd1Encoded || cgd1Uploading;
 	for(const option of $('cgd1Rate').options) {
 		const bit = {4000:1,8000:2,16000:4,24000:16,32000:8,40000:32,41000:64}[option.value];
-		const rates = {8:[8000,16000],9:[8000,16000],10:[16000,32000],11:[16000],14:[16000]}[codec];
+		const rates = {8:[16000],9:[8000,16000],10:[16000,32000],11:[16000],14:[16000]}[codec];
 		option.disabled = !!(cgd1Geometry && !(cgd1Geometry.rates & bit)) ||
 			!!(rates && !rates.includes(Number(option.value)));
 	}
@@ -5045,3 +5046,13 @@ async function SendCustomConfig() {
   <div id="log"></div>
 
 </body></html>
+
+<script>
+async function cgd1LightDiagnostic() {
+ try {
+  const r = await cgd1Call(0x23,new Uint8Array());
+  const names = ['saved','effective','output','fault','clockEnable','divider','pwmEnable','invert','nInvert','polarity','gpio','outputDisable','mux'];
+  addLog('BACKLIGHT '+names.map((n,i)=>n+'='+r.getUint8(i+3)).join(' ')+' cycle=0x'+r.getUint32(16,true).toString(16));
+ } catch(error) { addLog('Backlight diagnostics: '+error.message); }
+}
+</script>
