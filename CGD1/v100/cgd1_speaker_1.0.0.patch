@@ -1,0 +1,547 @@
+--- /dev/null
++++ b/custom_components/cgd1_speaker/__init__.py
+@@ -0,0 +1,13 @@
++"""CGD1 BLE live speaker."""
++from homeassistant.const import Platform
++
++PLATFORMS = [Platform.MEDIA_PLAYER]
++
++
++async def async_setup_entry(hass, entry):
++    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
++    return True
++
++
++async def async_unload_entry(hass, entry):
++    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+--- /dev/null
++++ b/custom_components/cgd1_speaker/config_flow.py
+@@ -0,0 +1,49 @@
++"""Discover a CGD1 or select it by Bluetooth address."""
++import re
++import probatio as vol
++from homeassistant import config_entries
++from homeassistant.components import bluetooth
++from homeassistant.const import CONF_ADDRESS, CONF_NAME
++
++DOMAIN = "cgd1_speaker"
++
++
++class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
++    VERSION = 1
++    _discovery = None
++
++    async def async_step_bluetooth(self, discovery_info):
++        self._discovery = discovery_info
++        await self.async_set_unique_id(discovery_info.address.upper())
++        self._abort_if_unique_id_configured()
++        self.context["title_placeholders"] = {"name": discovery_info.name}
++        return await self.async_step_confirm()
++
++    async def async_step_confirm(self, user_input=None):
++        if user_input is not None:
++            return self.async_create_entry(
++                title=self._discovery.name,
++                data={CONF_ADDRESS: self._discovery.address, CONF_NAME: self._discovery.name},
++            )
++        return self.async_show_form(step_id="confirm")
++
++    async def async_step_user(self, user_input=None):
++        errors = {}
++        if user_input is not None:
++            address = user_input[CONF_ADDRESS].strip().upper()
++            if not re.fullmatch(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", address):
++                errors[CONF_ADDRESS] = "invalid_address"
++            elif bluetooth.async_ble_device_from_address(self.hass, address, connectable=True) is None:
++                errors["base"] = "not_discovered"
++            else:
++                await self.async_set_unique_id(address)
++                self._abort_if_unique_id_configured()
++                return self.async_create_entry(
++                    title=user_input[CONF_NAME],
++                    data={CONF_ADDRESS: address, CONF_NAME: user_input[CONF_NAME]},
++                )
++        return self.async_show_form(
++            step_id="user", errors=errors,
++            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): str,
++                                    vol.Optional(CONF_NAME, default="CGD1"): str}),
++        )
+--- /dev/null
++++ b/custom_components/cgd1_speaker/manifest.json
+@@ -0,0 +1,21 @@
++{
++  "domain": "cgd1_speaker",
++  "name": "CGD1 Speaker",
++  "version": "1.0.0",
++  "config_flow": true,
++  "documentation": "https://github.com/redblue-pkt/redblue-pkt.github.io",
++  "codeowners": [],
++  "dependencies": [
++    "bluetooth_adapters",
++    "ffmpeg",
++    "media_source"
++  ],
++  "requirements": [],
++  "iot_class": "local_push",
++  "bluetooth": [
++    {
++      "local_name": "CGD_*",
++      "connectable": true
++    }
++  ]
++}
+--- /dev/null
++++ b/custom_components/cgd1_speaker/media_player.py
+@@ -0,0 +1,239 @@
++"""Decode on the HA host and stream encoded mono audio over BLE to CGD1."""
++from __future__ import annotations
++
++import asyncio
++from contextlib import suppress
++import logging
++
++from bleak import BleakClient
++from homeassistant.components import bluetooth, media_source
++from homeassistant.components.media_player import (
++    MediaPlayerDeviceClass, MediaPlayerEntity, MediaPlayerEntityFeature, MediaPlayerState,
++    async_process_play_media_url,
++)
++from homeassistant.const import CONF_ADDRESS, CONF_NAME
++from homeassistant.exceptions import HomeAssistantError
++from homeassistant.helpers.entity import DeviceInfo
++
++from .protocol import LiveClient, ProtocolError
++
++_LOGGER = logging.getLogger(__name__)
++DOMAIN = "cgd1_speaker"
++# Prefer G.722 (64 kbit/s); all alternatives reuse firmware decoders.
++FORMATS = ((8, "g722", "g722", 8000), (4, "pcm_alaw", "alaw", 16000),
++           (5, "pcm_mulaw", "mulaw", 16000), (1, "pcm_u8", "u8", 16000),
++           (2, "pcm_s16le", "s16le", 32000), (10, "sbc", "sbc", 4000),
++           (11, "sbc", "sbc", 7600))
++
++
++async def async_setup_entry(hass, entry, async_add_entities):
++    async_add_entities([CGD1Speaker(entry)])
++
++
++class CGD1Speaker(MediaPlayerEntity):
++    _attr_has_entity_name = True
++    _attr_name = "Speaker"
++    _attr_device_class = MediaPlayerDeviceClass.SPEAKER
++    _attr_should_poll = False
++    _unrecorded_attributes = frozenset({"bytes_sent", "bytes_consumed", "buffer_underruns"})
++    _attr_supported_features = (
++        MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.STOP
++        | MediaPlayerEntityFeature.VOLUME_SET | MediaPlayerEntityFeature.VOLUME_MUTE
++        | MediaPlayerEntityFeature.BROWSE_MEDIA
++    )
++    _attr_state = MediaPlayerState.IDLE
++    _attr_volume_level = 0.6
++    _attr_is_volume_muted = False
++
++    def __init__(self, entry):
++        self.address = entry.data[CONF_ADDRESS]
++        self._attr_unique_id = self.address + "_speaker"
++        self._attr_device_info = DeviceInfo(
++            identifiers={(DOMAIN, self.address)}, name=entry.data[CONF_NAME],
++            manufacturer="Qingping / PVVX", model="CGD1 live audio",
++            connections={("bluetooth", self.address)},
++        )
++        self._task = None
++        self._operation_lock = asyncio.Lock()
++        self._live = None
++        self._volume_changed = False
++        self._attr_extra_state_attributes = {"live_protocol": 1}
++
++    async def async_added_to_hass(self):
++        self.async_on_remove(bluetooth.async_register_callback(
++            self.hass, self._on_advertisement, {"address": self.address},
++            bluetooth.BluetoothScanningMode.PASSIVE,
++        ))
++
++    def _on_advertisement(self, service_info, change):
++        if not self.available:
++            self._attr_available = True
++            self.async_write_ha_state()
++
++    async def async_will_remove_from_hass(self):
++        await self.async_media_stop()
++
++    async def async_media_stop(self):
++        async with self._operation_lock:
++            await self._stop()
++
++    async def _stop(self):
++        if self._task:
++            self._task.cancel()
++            with suppress(asyncio.CancelledError):
++                await self._task
++            self._task = None
++        self._attr_state = MediaPlayerState.IDLE
++        self.async_write_ha_state()
++
++    async def async_set_volume_level(self, volume):
++        self._attr_volume_level = round(max(0, min(1, volume)) * 5) / 5
++        self._volume_changed = True
++        self.async_write_ha_state()
++
++    async def async_mute_volume(self, mute):
++        self._attr_is_volume_muted = mute
++        self._volume_changed = True
++        self.async_write_ha_state()
++
++    def _volume(self):
++        return 0 if self.is_volume_muted else round(self.volume_level * 5)
++
++    async def async_browse_media(self, media_content_type=None, media_content_id=None):
++        return await media_source.async_browse_media(
++            self.hass, media_content_id,
++            content_filter=lambda item: (item.media_content_type or "").startswith("audio/"),
++        )
++
++    async def async_play_media(self, media_type, media_id, **kwargs):
++        if media_source.is_media_source_id(media_id):
++            resolved = await media_source.async_resolve_media(self.hass, media_id, self.entity_id)
++            media_id = resolved.url
++        url = async_process_play_media_url(self.hass, media_id)
++        if not url.startswith(("http://", "https://")):
++            raise HomeAssistantError("CGD1 accepts HTTP(S) URLs or HA media sources")
++        async with self._operation_lock:
++            await self._stop()
++            self._attr_media_title = kwargs.get("extra", {}).get("title", "CGD1 audio")
++            self._attr_state = MediaPlayerState.BUFFERING
++            self._attr_available = True
++            self._attr_extra_state_attributes = {"live_protocol": 1}
++            self._task = self.hass.async_create_task(self._play(url), "CGD1 live audio")
++            self.async_write_ha_state()
++
++    async def _play(self, url):
++        client = live = process = None
++        started = False
++        stderr_task = None
++        try:
++            device = bluetooth.async_ble_device_from_address(self.hass, self.address, connectable=True)
++            if device is None:
++                raise ProtocolError("CGD1 unavailable through HA Bluetooth")
++            client = BleakClient(device)
++            await asyncio.wait_for(client.connect(), 20)
++            live = LiveClient(client)
++            self._live = live
++            await live.connect()
++            caps = await live.capabilities()
++            fmt = next((f for f in FORMATS if caps.codecs & (1 << f[0])), None)
++            if fmt is None:
++                raise ProtocolError("No supported host encoder for enabled firmware codecs")
++            codec, encoder, container, bytes_per_second = fmt
++            from homeassistant.components.ffmpeg import get_ffmpeg_manager
++            ffmpeg = get_ffmpeg_manager(self.hass).binary
++            # Argument vector, never a shell. Do not allow arbitrary local file inputs.
++            codec_options = ["-b:a", "32000"] if codec == 10 else ["-msbc", "1"] if codec == 11 else []
++            process = await asyncio.create_subprocess_exec(
++                ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
++                "-protocol_whitelist", "http,https,tcp,tls,crypto",
++                "-rw_timeout", "10000000", "-i", url, "-vn", "-ac", "1", "-ar", "16000",
++                "-c:a", encoder, *codec_options, "-f", container, "pipe:1",
++                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
++            )
++            async def drain_errors():
++                tail = b""
++                while data := await process.stderr.read(1024):
++                    tail = (tail + data)[-4096:]
++                return tail
++            stderr_task = asyncio.create_task(drain_errors())
++            # Read before START: a bad URL cannot leave a live receiver waiting.
++            pending = await asyncio.wait_for(process.stdout.read(512), 15)
++            if not pending:
++                raise ProtocolError("Source contains no decodable audio")
++            await live.start(codec, self._volume())
++            started = True
++            self._volume_changed = False
++            last_publish = 0.0
++            while True:
++                status = await live.status()
++                credit = live.credit(status, caps.capacity)
++                if status.state == 0:
++                    raise ProtocolError("Playback stopped at the clock (button or alarm)")
++                self._attr_state = MediaPlayerState.PLAYING if status.state == 2 else MediaPlayerState.BUFFERING
++                self._attr_extra_state_attributes = {
++                    "live_protocol": 1, "codec": encoder, "sample_rate": caps.rate,
++                    "bytes_sent": live.sent, "bytes_consumed": status.consumed,
++                    "buffer_underruns": status.underruns,
++                }
++                if self._volume_changed:
++                    await live.volume(self._volume())
++                    self._volume_changed = False
++                if credit and pending:
++                    count = min(credit, len(pending), 512)
++                    await live.send(pending[:count])
++                    pending = pending[count:]
++                if not pending:
++                    pending = await asyncio.wait_for(process.stdout.read(512), 10)
++                    if not pending:
++                        break
++                now = asyncio.get_running_loop().time()
++                if now - last_publish >= 1:
++                    self.async_write_ha_state()
++                    last_publish = now
++                # Device credits pace writes; do not impose a fixed low bitrate.
++                if not credit:
++                    await asyncio.sleep(0.02)
++                else:
++                    await asyncio.sleep(0)
++            code = await asyncio.wait_for(process.wait(), 5)
++            if code:
++                raise ProtocolError("Audio conversion failed")
++            await live.finish()
++            deadline = asyncio.get_running_loop().time() + caps.capacity / bytes_per_second + 5
++            while True:
++                status = await live.status()
++                live.credit(status, caps.capacity)
++                if status.state == 0:
++                    break
++                if asyncio.get_running_loop().time() > deadline:
++                    raise ProtocolError("Receiver did not finish draining")
++                await asyncio.sleep(0.05)
++            self._attr_state = MediaPlayerState.IDLE
++        except asyncio.CancelledError:
++            raise
++        except Exception as error:
++            _LOGGER.warning("CGD1 playback failed: %s", error)
++            self._attr_state = MediaPlayerState.IDLE
++            if client is None or not client.is_connected:
++                self._attr_available = False
++            self._attr_extra_state_attributes = {**self._attr_extra_state_attributes, "last_error": str(error)}
++        finally:
++            if process and process.returncode is None:
++                with suppress(ProcessLookupError):
++                    process.terminate()
++                try:
++                    await asyncio.wait_for(process.wait(), 2)
++                except asyncio.TimeoutError:
++                    with suppress(ProcessLookupError):
++                        process.kill()
++                    await process.wait()
++            if stderr_task:
++                await stderr_task
++            if live and started and client.is_connected:
++                with suppress(Exception):
++                    await asyncio.wait_for(live.stop(), 2)
++            if client:
++                with suppress(Exception):
++                    await asyncio.wait_for(client.disconnect(), 5)
++            self._live = None
++            self.async_write_ha_state()
+--- /dev/null
++++ b/custom_components/cgd1_speaker/protocol.py
+@@ -0,0 +1,123 @@
++"""CGD1 live GATT protocol, shared by HA and the command-line sender."""
++from __future__ import annotations
++
++import asyncio
++import secrets
++import struct
++from dataclasses import dataclass
++
++CHARACTERISTIC = "00001f1f-0000-1000-8000-00805f9b34fb"
++
++
++class ProtocolError(Exception):
++    """Firmware rejected a command or a live session failed."""
++
++
++@dataclass(frozen=True)
++class Capabilities:
++    codecs: int
++    rate: int
++    capacity: int
++    max_volume: int
++
++
++@dataclass(frozen=True)
++class Status:
++    state: int
++    error: int
++    token: int
++    received: int
++    consumed: int
++    volume: int
++    underruns: int
++
++
++class LiveClient:
++    def __init__(self, client):
++        self.client = client
++        self.token = secrets.randbelow(65535) + 1
++        self.sequence = 0
++        self.sent = 0
++        self._pending = None
++        self._command_lock = asyncio.Lock()
++        self._write_lock = asyncio.Lock()
++        self._data_error = None
++
++    def _notification(self, _sender, data):
++        if len(data) < 3 or data[0] != 0x90:
++            return
++        if data[1] == 0x32 and data[2]:
++            self._data_error = ProtocolError(f"DATA rejected: {data[2]}")
++        if self._pending and data[1] == self._pending[0]:
++            future = self._pending[1]
++            if not future.done():
++                future.set_result(bytes(data))
++
++    async def connect(self):
++        await self.client.start_notify(CHARACTERISTIC, self._notification)
++
++    async def command(self, sub, payload=b""):
++        async with self._command_lock:
++            future = asyncio.get_running_loop().create_future()
++            self._pending = (sub, future)
++            try:
++                async with self._write_lock:
++                    await self.client.write_gatt_char(
++                        CHARACTERISTIC, bytes((0x90, sub)) + payload, response=False
++                    )
++                reply = await asyncio.wait_for(future, 5)
++                if reply[2]:
++                    raise ProtocolError(f"Command {sub:02x}: status {reply[2]}")
++                return reply
++            finally:
++                self._pending = None
++
++    async def capabilities(self):
++        data = await self.command(0x30)
++        if len(data) != 16 or data[3] != 1:
++            raise ProtocolError("Unsupported live protocol; install CGD1 v10.0")
++        codecs, rate, capacity, volume = struct.unpack_from("<IIHB", data, 4)
++        if rate != 16000 or not 512 <= capacity <= 65535 or volume != 5:
++            raise ProtocolError("Invalid live capabilities")
++        return Capabilities(codecs, rate, capacity, volume)
++
++    async def start(self, codec, volume):
++        await self.command(0x31, struct.pack("<HBIB", self.token, codec, 16000, volume))
++
++    async def status(self):
++        if self._data_error:
++            raise self._data_error
++        data = await self.command(0x33)
++        if len(data) != 20:
++            raise ProtocolError("Truncated live status")
++        return Status(*struct.unpack_from("<BBHIIBI", data, 3))
++
++    async def send(self, data):
++        # 20-byte GATT values work with the firmware's default ATT MTU.
++        # This deliberately does not assume MTU/DLE support from a proxy.
++        for offset in range(0, len(data), 14):
++            part = data[offset:offset + 14]
++            packet = bytes((0x90, 0x32)) + struct.pack("<HH", self.token, self.sequence) + part
++            async with self._write_lock:
++                await self.client.write_gatt_char(CHARACTERISTIC, packet, response=False)
++            self.sequence = (self.sequence + 1) & 65535
++            self.sent += len(part)
++
++    async def finish(self):
++        await self.command(0x34, struct.pack("<HI", self.token, self.sent))
++
++    async def stop(self):
++        await self.command(0x35, struct.pack("<H", self.token))
++
++    async def volume(self, value):
++        await self.command(0x36, struct.pack("<HB", self.token, value))
++
++    def credit(self, status, capacity):
++        if status.token != self.token or status.error or status.state == 4:
++            raise ProtocolError(f"Live session ended: state={status.state}, error={status.error}")
++        if status.received > self.sent or status.consumed > status.received:
++            raise ProtocolError("Invalid byte counters")
++        outstanding = self.sent - status.consumed
++        if outstanding > capacity:
++            raise ProtocolError("Receiver queue overflow")
++        return capacity - outstanding
+--- /dev/null
++++ b/custom_components/cgd1_speaker/strings.json
+@@ -0,0 +1,26 @@
++{
++  "title": "CGD1 Speaker",
++  "config": {
++    "step": {
++      "user": {
++        "title": "CGD1 Speaker",
++        "description": "Requires CGD1 firmware v10.0 with BLE live audio. Close Telink Manager before playing.",
++        "data": {
++          "address": "Bluetooth MAC address",
++          "name": "Name"
++        }
++      },
++      "confirm": {
++        "title": "CGD1 Speaker",
++        "description": "Add this CGD1 as a BLE live audio player? Requires firmware v10.0."
++      }
++    },
++    "error": {
++      "invalid_address": "Enter a Bluetooth MAC address.",
++      "not_discovered": "No connectable Bluetooth adapter has discovered this address."
++    },
++    "abort": {
++      "already_configured": "This clock is already configured."
++    }
++  }
++}
+--- /dev/null
++++ b/custom_components/cgd1_speaker/translations/en.json
+@@ -0,0 +1,26 @@
++{
++  "title": "CGD1 Speaker",
++  "config": {
++    "step": {
++      "user": {
++        "title": "CGD1 Speaker",
++        "description": "Requires CGD1 firmware v10.0 with BLE live audio. Close Telink Manager before playing.",
++        "data": {
++          "address": "Bluetooth MAC address",
++          "name": "Name"
++        }
++      },
++      "confirm": {
++        "title": "CGD1 Speaker",
++        "description": "Add this CGD1 as a BLE live audio player? Requires firmware v10.0."
++      }
++    },
++    "error": {
++      "invalid_address": "Enter a Bluetooth MAC address.",
++      "not_discovered": "No connectable Bluetooth adapter has discovered this address."
++    },
++    "abort": {
++      "already_configured": "This clock is already configured."
++    }
++  }
++}
+--- /dev/null
++++ b/custom_components/cgd1_speaker/translations/pl.json
+@@ -0,0 +1,26 @@
++{
++  "title": "CGD1 Speaker",
++  "config": {
++    "step": {
++      "user": {
++        "title": "CGD1 Speaker",
++        "description": "Wymaga firmware CGD1 v10.0 ze streamingiem BLE. Przed odtwarzaniem rozłącz Telink Manager.",
++        "data": {
++          "address": "Adres MAC Bluetooth",
++          "name": "Nazwa"
++        }
++      },
++      "confirm": {
++        "title": "CGD1 Speaker",
++        "description": "Dodaj CGD1 jako odtwarzacz audio BLE. Wymagany firmware v10.0."
++      }
++    },
++    "error": {
++      "invalid_address": "Podaj poprawny adres MAC Bluetooth.",
++      "not_discovered": "Adres nie został wykryty przez dostępny adapter Bluetooth."
++    },
++    "abort": {
++      "already_configured": "Ten zegarek jest już skonfigurowany."
++    }
++  }
++}

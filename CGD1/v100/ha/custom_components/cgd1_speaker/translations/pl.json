@@ -1,0 +1,26 @@
+{
+  "title": "CGD1 Speaker",
+  "config": {
+    "step": {
+      "user": {
+        "title": "CGD1 Speaker",
+        "description": "Wymaga firmware CGD1 v10.0 ze streamingiem BLE. Przed odtwarzaniem rozłącz Telink Manager.",
+        "data": {
+          "address": "Adres MAC Bluetooth",
+          "name": "Nazwa"
+        }
+      },
+      "confirm": {
+        "title": "CGD1 Speaker",
+        "description": "Dodaj CGD1 jako odtwarzacz audio BLE. Wymagany firmware v10.0."
+      }
+    },
+    "error": {
+      "invalid_address": "Podaj poprawny adres MAC Bluetooth.",
+      "not_discovered": "Adres nie został wykryty przez dostępny adapter Bluetooth."
+    },
+    "abort": {
+      "already_configured": "Ten zegarek jest już skonfigurowany."
+    }
+  }
+}

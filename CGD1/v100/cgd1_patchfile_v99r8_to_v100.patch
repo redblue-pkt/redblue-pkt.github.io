@@ -1,0 +1,695 @@
+--- a/cgd1_v99r8_on_clean_pvvx.patch
++++ b/cgd1_v99r8_on_clean_pvvx.patch
+@@ -5,11 +5,11 @@
+ +.DEFAULT_GOAL := cgd1
+ +.NOTPARALLEL:
+ +PROJECT_NAME := CGD1
+-+CGD1_DECODERS ?= PCM8 PCM16 ADPCM ALAW ULAW G722 SBC MSBC TSBC
+++CGD1_DECODERS ?= PCM8 PCM16 ADPCM ALAW ULAW G722 SBC MSBC
+ +ifeq ($(strip $(CGD1_DECODERS)),)
+ +$(error Enable at least one audio decoder in CGD1_DECODERS)
+ +endif
+-+ifneq ($(filter-out PCM PCM8 PCM16 ADPCM G711 ALAW ULAW G722 AMR SBC MSBC TSBC,$(CGD1_DECODERS)),)
+++ifneq ($(filter-out PCM PCM8 PCM16 ADPCM G711 ALAW ULAW G722 AMR SBC MSBC,$(CGD1_DECODERS)),)
+ +$(error Unknown CGD1_DECODERS entry)
+ +endif
+ +CGD1_AMR := $(if $(filter AMR,$(CGD1_DECODERS)),1,0)
+@@ -265,7 +265,7 @@
+ +static const u8 my_ModelStr[] = {"CGD1"};
+ +static u8 my_HardStr[13] = {"CG_Dove_HW_R0"};
+ +static const u8 my_SerialStr[] = {"CGD1-PVVX"};
+-+static const u8 my_SoftStr[] = {'V','0'+(VERSION>>4),'.','0'+(VERSION&0x0f),'-','r','8'};
+++static const u8 my_SoftStr[] = {'V', '1', '0', '.', '0'};
+ +static const u8 my_ManStr[] = {"Qingping / PVVX port"};
+ +
+  #else
+@@ -288,7 +288,7 @@
+  #endif
+  
+ +#ifdef CGD1_TELINK
+-+#define VERSION 0x99
+++#define VERSION 0xa0
+ +#else
+  #define VERSION 0x59	 // BCD format (0x34 -> '3.4')
+ +#endif
+@@ -1092,7 +1092,7 @@
+ +#endif
+ --- /dev/null
+ +++ b/src/cgd1/cgd1_audio.c
+-@@ -0,0 +1,242 @@
++@@ -0,0 +1,273 @@
+ +#include "cgd1_audio.h"
+ +#include "cgd1_crc.h"
+ +#include "../decoders/decoder.h"
+@@ -1137,13 +1137,10 @@
+ +	case AUDIO_AMR:
+ +		return libamr_decode(f);
+ +#endif
+-+#if defined(DECODER_SBC) || defined(DECODER_TSBC)
+++#if defined(DECODER_SBC)
+ +#ifdef DECODER_SBC
+ +	case AUDIO_SBC:
+ +#endif
+-+#ifdef DECODER_TSBC
+-+	case AUDIO_TELINK_SBC:
+-+#endif
+ +		return libsbc_decode(f);
+ +#endif
+ +#if defined(DECODER_MSBC)
+@@ -1335,9 +1332,43 @@
+ +	}
+ +	return n;
+ +}
+++
+++/* Live input uses the same decoder state and implementations as flash audio.
+++ * No file scan, rewind, flash access or allocation occurs here. */
+++int cgd1_audio_stream_init(struct cgd1_audio_decoder *d, unsigned codec, uint32_t rate)
+++{
+++	if (codec >= 32 || !(CGD1_CODEC_MASK & (1ul << codec)) || codec == AUDIO_AMR || rate != 16000)
+++		return -1;
+++	memset(d, 0, sizeof(*d));
+++	d->codec = codec;
+++	d->rate = rate;
+++	return cgd1_audio_rewind(d);
+++}
+++int cgd1_audio_stream_decode(struct cgd1_audio_decoder *d, const uint8_t *input,
+++	unsigned size, unsigned *used, int16_t *output, unsigned capacity)
+++{
+++	struct decoder_frame f;
+++	memset(&f, 0, sizeof(f));
+++	f.codec = d->codec;
+++	f.rate = d->rate;
+++	f.channels = 1;
+++	f.state = d->state;
+++	f.flags = DECODER_LEGACY_IMA;
+++	f.input = input;
+++	f.input_size = size;
+++	f.output = output;
+++	f.output_size = capacity;
+++	int result = decode_frame(&f);
+++	*used = f.input_used;
+++	if (result == -2)
+++		return 0;
+++	if (result || f.rate != d->rate || f.input_used > size || f.output_used > capacity)
+++		return -1;
+++	return f.output_used;
+++}
+ --- /dev/null
+ +++ b/src/cgd1/cgd1_audio.h
+-@@ -0,0 +1,95 @@
++@@ -0,0 +1,92 @@
+ +#ifndef CGD1_AUDIO_H
+ +#define CGD1_AUDIO_H
+ +#include <stdint.h>
+@@ -1346,7 +1377,7 @@
+ +#define CGD1_AUDIO_HEADER 24u
+ +#define CGD1_CODEC_MASK (0u \
+ +	CGD1_PCM8_MASK CGD1_PCM16_MASK CGD1_ADPCM_MASK CGD1_ALAW_MASK CGD1_ULAW_MASK \
+-+	CGD1_G722_MASK CGD1_AMR_MASK CGD1_SBC_MASK CGD1_TSBC_MASK CGD1_MSBC_MASK)
+++	CGD1_G722_MASK CGD1_AMR_MASK CGD1_SBC_MASK CGD1_MSBC_MASK)
+ +#ifdef DECODER_PCM8
+ +#define CGD1_PCM8_MASK | (1u << 1)
+ +#else
+@@ -1389,17 +1420,12 @@
+ +#else
+ +#define CGD1_SBC_MASK
+ +#endif
+-+#ifdef DECODER_TSBC
+-+#define CGD1_TSBC_MASK | (1u << 14)
+-+#else
+-+#define CGD1_TSBC_MASK
+-+#endif
+ +#ifdef DECODER_MSBC
+ +#define CGD1_MSBC_MASK | (1u << 11)
+ +#else
+ +#define CGD1_MSBC_MASK
+ +#endif
+-+#if defined(DECODER_SBC) || defined(DECODER_MSBC) || defined(DECODER_TSBC)
+++#if defined(DECODER_SBC) || defined(DECODER_MSBC)
+ +#define CGD1_DECODER_WORDS 192
+ +#elif defined(DECODER_G722)
+ +#define CGD1_DECODER_WORDS 128
+@@ -1428,6 +1454,8 @@
+ +	uint8_t codec, cache[512];
+ +
+ +} __attribute__((aligned(4)));
+++int cgd1_audio_stream_init(struct cgd1_audio_decoder *, unsigned, uint32_t);
+++int cgd1_audio_stream_decode(struct cgd1_audio_decoder *, const uint8_t *, unsigned, unsigned *, int16_t *, unsigned);
+ +int cgd1_audio_open(struct cgd1_audio_decoder *, int (*)(void *, uint32_t, uint8_t *, unsigned), void *, uint32_t);
+ +int cgd1_audio_rewind(struct cgd1_audio_decoder *);
+ +int cgd1_audio_decode16(struct cgd1_audio_decoder *, uint16_t *, unsigned);
+@@ -2107,6 +2135,22 @@
+ +void cgd1_key_irq_mask(void);
+ +#endif
+ --- /dev/null
+++++ b/src/cgd1/cgd1_stream.h
++@@ -0,0 +1,13 @@
+++#ifndef CGD1_STREAM_H
+++#define CGD1_STREAM_H
+++#include <stdint.h>
+++#define CGD1_STREAM_CAPACITY 2048u
+++/* Positions are monotonically increasing bytes within a bounded session. */
+++struct cgd1_stream {
+++	uint32_t received __attribute__((aligned(4)));
+++	uint32_t consumed __attribute__((aligned(4)));
+++	uint16_t token, sequence;
+++	uint8_t state, error, volume, ended;
+++	uint8_t data[CGD1_STREAM_CAPACITY];
+++} __attribute__((aligned(4)));
+++#endif
++--- /dev/null
+ +++ b/src/cgd1/cgd1_tables.h
+ @@ -0,0 +1,23 @@
+ +/* Extracted from CGD1 1.0.1_0125; payload bytes exclude RAM address byte. */
+@@ -3386,7 +3430,7 @@
+ +}
+ --- /dev/null
+ +++ b/src/cgd1_board.c
+-@@ -0,0 +1,2106 @@
++@@ -0,0 +1,2305 @@
+ +/* CGD1 integration. Hardware evidence and protocol: docs/CGD1.md. */
+ +#ifdef CGD1_HOST_TEST
+ +#include "../tests/cgd1_mock.h"
+@@ -3405,6 +3449,7 @@
+ +#if DEVICE_TYPE == DEVICE_CGD1
+ +#include "cgd1/cgd1.h"
+ +#include "cgd1/cgd1_audio.h"
+++#include "cgd1/cgd1_stream.h"
+ +#include "cgd1/cgd1_beep.h"
+ +#include "cgd1/cgd1_app.h"
+ +#include "cgd1_board.h"
+@@ -3499,6 +3544,14 @@
+ +static u8 spi_jedec[3];
+ +static u32 spi_capacity, slot_bytes, audio_base;
+ +static struct cgd1_audio_decoder decoder;
+++static struct cgd1_stream stream;
+++static u32 stream_tick;
+++static void stream_service(void);
+++/* state: 0 idle, 1 buffering, 2 playing, 3 draining, 4 error. */
+++static int stream_active(void)
+++{
+++	return stream.state >= 1 && stream.state <= 3;
+++}
+ +static struct {
+ +	u16 start, end;
+ +	u8 enabled, brightness;
+@@ -4041,6 +4094,9 @@
+ +	u8 irq = irq_disable();
+ +	u8 was_running = audio_running;
+ +	u8 was_playing = ringing;
+++	u8 was_streaming = stream_active();
+++	if (was_streaming)
+++		stream.state = 0;
+ +	/* Mute before changing either audio pin. */
+ +	gpio_write(GPIO_PD4, 0);
+ +	audio_running = 0;
+@@ -4061,7 +4117,7 @@
+ +	gpio_write(GPIO_PC1, 0);
+ +	gpio_write(GPIO_PC0, 0);
+ +	irq_restore(irq);
+-+	if (was_playing)
+++	if (was_playing && !was_streaming)
+ +		cgd1_app_audio_stopped();
+ +	ringing = 0;
+ +	u8 was_blinking = alarm_blink;
+@@ -4170,6 +4226,35 @@
+ +	ring_write = (ring_write + n) & (RING_SIZE - 1);
+ +	return 1;
+ +}
+++static void audio_enable(u32 period)
+++{
+++	gpio_set_func(GPIO_PC1, AS_PWM0);
+++	gpio_set_func(GPIO_PC0, AS_PWM4_N);
+++	/* Factory 0x13360: mode=3 at 0x800783, PWM4=0x05dc0280.
+++	 * Factory 0x1466..0x149e restarts both channels for EVERY sample.
+++	 * 0x0202 in its literal pool is GPIO_PC1, not a PWM compare value. */
+++	/* main.c gates PWM off at boot. Register setup alone cannot run it. */
+++	reg_clk_en0 |= FLD_CLK0_PWM_EN;
+++	pwm_set_clk(CLOCK_SYS_CLOCK_HZ, CLOCK_SYS_CLOCK_HZ);
+++	pwm_set_mode(PWM0_ID, PWM_IR_MODE);
+++	pwm_set_pulse_num(PWM0_ID, 0);
+++	/* Factory 0x133a4..0x133b2 sets bit 0 of 0x800784.
+++	 * PC1 must be inverted relative to the PC0 PWM4_N reference. */
+++	reg_pwm_invert = (reg_pwm_invert & ~BIT(4)) | BIT(0);
+++	reg_pwm_n_invert &= ~BIT(4);
+++	pwm_set_cycle_and_duty(PWM0_ID, period, audio_neutral);
+++	pwm_set_cycle_and_duty(PWM4_ID, period, audio_neutral);
+++	/* Start both neutral waveforms while the amplifier is muted. */
+++	pwm_start(PWM4_ID);
+++	pwm_start(PWM0_ID);
+++	gpio_write(GPIO_PD4, 1);
+++	foot_stop_armed = !!gpio_read(GPIO_PA1);
+++	audio_running = 1;
+++	ringing = 1;
+++
+++	timer1_set_mode(TIMER_MODE_SYSCLK, 0, CLOCK_SYS_CLOCK_HZ / (beep_mode ? 8000 : 16000));
+++	timer_start(TIMER1);
+++}
+ +static void audio_start(u8 preview)
+ +{
+ +	if (migration_pending)
+@@ -4238,32 +4323,8 @@
+ +			}
+ +		}
+ +	}
+-+	gpio_set_func(GPIO_PC1, AS_PWM0);
+-+	gpio_set_func(GPIO_PC0, AS_PWM4_N);
+-+	/* Factory 0x13360: mode=3 at 0x800783, PWM4=0x05dc0280.
+-+	 * Factory 0x1466..0x149e restarts both channels for EVERY sample.
+-+	 * 0x0202 in its literal pool is GPIO_PC1, not a PWM compare value. */
+-+	/* main.c gates PWM off at boot. Register setup alone cannot run it. */
+-+	reg_clk_en0 |= FLD_CLK0_PWM_EN;
+-+	pwm_set_clk(CLOCK_SYS_CLOCK_HZ, CLOCK_SYS_CLOCK_HZ);
+-+	pwm_set_mode(PWM0_ID, PWM_IR_MODE);
+-+	pwm_set_pulse_num(PWM0_ID, 0);
+-+	/* Factory 0x133a4..0x133b2 sets bit 0 of 0x800784.
+-+	 * PC1 must be inverted relative to the PC0 PWM4_N reference. */
+-+	reg_pwm_invert = (reg_pwm_invert & ~BIT(4)) | BIT(0);
+-+	reg_pwm_n_invert &= ~BIT(4);
+-+	pwm_set_cycle_and_duty(PWM0_ID, period, audio_neutral);
+-+	pwm_set_cycle_and_duty(PWM4_ID, period, audio_neutral);
+-+	/* Start both neutral waveforms while the amplifier is muted. */
+-+	pwm_start(PWM4_ID);
+-+	pwm_start(PWM0_ID);
+-+	gpio_write(GPIO_PD4, 1);
+-+	foot_stop_armed = !!gpio_read(GPIO_PA1);
+-+	audio_running = 1;
+-+	ringing = 1;
+ +	ring_seconds = duration;
+-+	timer1_set_mode(TIMER_MODE_SYSCLK, 0, CLOCK_SYS_CLOCK_HZ / (beep_mode ? 8000 : 16000));
+-+	timer_start(TIMER1);
+++	audio_enable(period);
+ +}
+ +_attribute_ram_code_ void cgd1_audio_irq(void)
+ +{
+@@ -4307,6 +4368,10 @@
+ +	if (!foot_audio_stop)
+ +		return 0;
+ +	foot_audio_stop = 0;
+++	if (stream_active()) {
+++		cgd1_stop_audio();
+++		return 1;
+++	}
+ +	/* Run the factory first-press action in main context, including snooze.
+ +	 * The GPIO edge survives a short press and an expensive codec chunk. */
+ +	cgd1_app_audio_press();
+@@ -4314,6 +4379,10 @@
+ +}
+ +void cgd1_audio_service(void)
+ +{
+++	if (stream_active()) {
+++		stream_service();
+++		return;
+++	}
+ +	if (audio_foot_stop())
+ +		return;
+ +	if (!audio_running || !pcm_mode)
+@@ -4333,6 +4402,169 @@
+ +	}
+ +}
+ +
+++static void stream_fail(u8 error)
+++{
+++	cgd1_stop_audio();
+++	stream.state = 4;
+++	stream.error = error;
+++}
+++static void stream_service(void)
+++{
+++	if (!wrk.ble_connected || wrk.ota_is_working) {
+++		stream_fail(1);
+++		return;
+++	}
+++	if (clock_time_exceed(stream_tick, 10000000)) {
+++		stream_fail(2);
+++		return;
+++	}
+++	if (audio_foot_stop()) {
+++		cgd1_stop_audio();
+++		return;
+++	}
+++	if (!audio_running && !stream.ended && stream.received - stream.consumed < 512)
+++		return;
+++	for (unsigned chunk = 0; chunk < RING_SIZE / 128; chunk++) {
+++		unsigned free = (ring_read - ring_write - 1) & (RING_SIZE - 1);
+++		if (free < 128)
+++			break;
+++		unsigned bytes = stream.received - stream.consumed;
+++		if (!bytes)
+++			break;
+++		if (bytes > sizeof(decoder.cache))
+++			bytes = sizeof(decoder.cache);
+++		for (unsigned i = 0; i < bytes; i++)
+++			decoder.cache[i] = stream.data[(stream.consumed + i) & (CGD1_STREAM_CAPACITY - 1)];
+++		unsigned used = 0;
+++		int count = cgd1_audio_stream_decode(&decoder, decoder.cache, bytes,
+++			&used, (int16_t *)source_samples, 128);
+++		if (count < 0 || (!count && stream.ended)) {
+++			stream_fail(3);
+++			return;
+++		}
+++		if (!count)
+++			break;
+++		stream.consumed += used;
+++		for (unsigned i = 0; i < (unsigned)count; i++)
+++			ring[(ring_write + i) & (RING_SIZE - 1)] = audio_pwm_sample((int32_t)(int16_t)source_samples[i] + 32768);
+++		__asm__ volatile ("" ::: "memory");
+++		ring_write = (ring_write + count) & (RING_SIZE - 1);
+++	}
+++	unsigned queued = (ring_write - ring_read) & (RING_SIZE - 1);
+++	if (audio_running && !stream.ended)
+++		stream.state = queued ? 2 : 1;
+++	if (!audio_running && queued >= (stream.ended ? 1 : 256)) {
+++		audio_enable(audio_cycle_base >> 16);
+++		stream.state = stream.ended ? 3 : 2;
+++	}
+++	if (stream.ended && stream.received == stream.consumed && !queued)
+++		cgd1_stop_audio();
+++}
+++/* Live protocol v1, PVVX command 0x90, subcommands 0x30..0x36.
+++ * DATA has no success notification; STATUS confirms cumulative byte positions.
+++ * Only this path touches the encoded RAM queue. Flash audio is unchanged. */
+++static unsigned stream_command(u8 sub, const u8 *p, unsigned n, u8 *out)
+++{
+++	out[2] = 1;
+++	if (sub == 0x30 && !n) {
+++		out[2] = 0;
+++		out[3] = 1;
+++		put32(out + 4, CGD1_CODEC_MASK & ~(1ul << 9));
+++		put32(out + 8, 16000);
+++		out[12] = CGD1_STREAM_CAPACITY & 255;
+++		out[13] = CGD1_STREAM_CAPACITY >> 8;
+++		out[14] = 5;
+++		out[15] = 1;
+++		return 16;
+++	}
+++	if (sub == 0x31 && n == 8) {
+++		u16 token = p[0] | (u16)p[1] << 8;
+++		if (migration_pending || ringing || stream_active() || cgd1_transfer_busy()) {
+++			out[2] = 2;
+++			return 3;
+++		}
+++		if (!token || p[7] > 5 || cgd1_audio_stream_init(&decoder, p[2], le32(p + 3)))
+++			return 3;
+++		cgd1_stop_audio();
+++		memset(&stream, 0, sizeof(stream));
+++		stream.token = token;
+++		stream.volume = p[7];
+++		stream.state = 1;
+++		stream_tick = clock_time();
+++		preview_audio = 1;
+++		beep_mode = pcm_mode = audio_eof = 0;
+++		ring_read = ring_write = 0;
+++		underruns = 0;
+++		u32 period = CLOCK_SYS_CLOCK_HZ / 32000;
+++		audio_volume = stream.volume;
+++		audio_gain = (u32)audio_volume * period * 4096 / CGD1_AUDIO_PWM_PERIOD;
+++		audio_cycle_base = period << 16;
+++		audio_neutral = audio_pwm_sample(32768);
+++		audio_reference_cycle = audio_cycle_base | audio_neutral;
+++		bls_l2cap_requestConnParamUpdate(6, 12, 0, 400);
+++		out[2] = 0;
+++		return 3;
+++	}
+++	if (sub == 0x33 && !n) {
+++		out[2] = 0;
+++		out[3] = stream.state;
+++		out[4] = stream.error;
+++		out[5] = stream.token;
+++		out[6] = stream.token >> 8;
+++		put32(out + 7, stream.received);
+++		put32(out + 11, stream.consumed);
+++		out[15] = stream.volume;
+++		put32(out + 16, underruns);
+++		return 20;
+++	}
+++	if (n < 2 || (p[0] | (u16)p[1] << 8) != stream.token)
+++		return 3;
+++	if (sub == 0x35 && n == 2) {
+++		if (stream_active())
+++			cgd1_stop_audio();
+++		out[2] = 0;
+++		return 3;
+++	}
+++	if (!stream_active()) {
+++		out[2] = 2;
+++		return 3;
+++	}
+++	if (sub == 0x32 && n > 4 && !stream.ended) {
+++		u16 sequence = p[2] | (u16)p[3] << 8;
+++		unsigned bytes = n - 4;
+++		if (sequence != stream.sequence || bytes > CGD1_STREAM_CAPACITY - (stream.received - stream.consumed)
+++			|| stream.received > 0xffff0000ul - bytes) {
+++			stream_fail(4);
+++			out[2] = 2;
+++			return 3;
+++		}
+++		for (unsigned i = 0; i < bytes; i++)
+++			stream.data[(stream.received + i) & (CGD1_STREAM_CAPACITY - 1)] = p[4 + i];
+++		stream.received += bytes;
+++		stream.sequence++;
+++		stream_tick = clock_time();
+++		return 0;
+++	}
+++	if (sub == 0x34 && n == 6) {
+++		if (le32(p + 2) != stream.received)
+++			return 3;
+++		stream.ended = 1;
+++		stream.state = 3;
+++		stream_tick = clock_time();
+++		out[2] = 0;
+++	}
+++	if (sub == 0x36 && n == 3 && p[2] <= 5) {
+++		stream.volume = p[2];
+++		audio_volume = p[2];
+++		audio_gain = (u32)audio_volume * (audio_cycle_base >> 16) * 4096 / CGD1_AUDIO_PWM_PERIOD;
+++		audio_neutral = audio_pwm_sample(32768);
+++		audio_reference_cycle = audio_cycle_base | audio_neutral;
+++		/* Already queued duty values drain in at most one ring duration. */
+++		out[2] = 0;
+++	}
+++	return 3;
+++}
+++
+ +static void audio_cue(void)
+ +{
+ +	if (settings.volume)
+@@ -4598,7 +4830,7 @@
+ +	if (initialized) {
+ +		reg_gpio_pa_irq_en &= (u8)~BIT(1);
+ +		foot_pending = 1;
+-+		if (audio_running || ringing)
+++		if (stream_active() || audio_running || ringing)
+ +			foot_audio_stop = 1;
+ +	}
+ +}
+@@ -4628,7 +4860,7 @@
+ +}
+ +int cgd1_busy(void)
+ +{
+-+	return settings_pending || ringing || audio_running || cgd1_app_busy() || cgd1_transfer_busy();
+++	return stream_active() || settings_pending || ringing || audio_running || cgd1_app_busy() || cgd1_transfer_busy();
+ +}
+ +void cgd1_task(void)
+ +{
+@@ -4641,7 +4873,7 @@
+ +	}
+ +	settings_sync();
+ +	light_update();
+-+	cgd1_app_poll(!!wrk.ble_connected, ringing);
+++	cgd1_app_poll(!!wrk.ble_connected, ringing && !stream_active());
+ +	u8 pressed = !gpio_read(GPIO_PA1);
+ +	if (cgd1_transfer_busy()) {
+ +		foot_pending = 0;
+@@ -4677,7 +4909,7 @@
+ +	cgd1_audio_service();
+ +	if (last_second != wrk.utc_time_sec) {
+ +		last_second = wrk.utc_time_sec;
+-+		if (migration_pending && !light_level && !cgd1_transfer_busy() && !cgd1_storage_migrate()) {
+++		if (migration_pending && !stream_active() && !light_level && !cgd1_transfer_busy() && !cgd1_storage_migrate()) {
+ +			migration_pending = 0;
+ +			settings_ready = 1;
+ +			settings_store();
+@@ -4696,7 +4928,7 @@
+ +		alarm_run_due[i] = deadline;
+ +	}
+ +	light_update();
+-+	if (settings_pending && !light_level && !ringing && !audio_running
+++	if (settings_pending && !stream_active() && !light_level && !ringing && !audio_running
+ +		&& !cgd1_transfer_busy() && clock_time_exceed(settings_save_tick, 1000000))
+ +	{
+ +		/* The GPIO is low for the entire internal/NOR persistence step.
+@@ -4730,6 +4962,17 @@
+ +	n--;
+ +	out[0] = 0x90;
+ +	out[1] = sub;
+++	if (sub >= 0x30 && sub <= 0x36) {
+++		if (wrk.ota_is_working || (cgd1_transfer_busy() && sub != 0x30 && sub != 0x33 && sub != 0x35)) {
+++			out[2] = 2;
+++			return 3;
+++		}
+++		return stream_command(sub, p, n, out);
+++	}
+++	if (stream_active() && sub != 0 && sub != 7 && sub != 0x17) {
+++		out[2] = 2;
+++		return 3;
+++	}
+ +	if (wrk.ota_is_working) {
+ +		out[2] = 2;
+ +		return 3;
+@@ -5390,7 +5633,7 @@
+ +static void settings_store(void)
+ +{
+ +	u8 parameters[49], records[147], marker[3];
+-+	if (!settings_ready || !nor_ok || light_level || audio_running || upload.pending || spi_dump.active)
+++	if (!settings_ready || !nor_ok || light_level || stream_active() || audio_running || upload.pending || spi_dump.active)
+ +		return;
+ +	settings_sync();
+ +	cgd1_app_records(parameters, records, settings.length, settings.crc);
+@@ -69761,7 +70004,7 @@
+ +#endif
+ --- /dev/null
+ +++ b/src/decoders/decoder.h
+-@@ -0,0 +1,35 @@
++@@ -0,0 +1,34 @@
+ +#ifndef AUDIO_DECODER_H
+ +#define AUDIO_DECODER_H
+ +#include <stdint.h>
+@@ -69781,8 +70024,7 @@
+ +	AUDIO_G722 = 8,
+ +	AUDIO_AMR = 9,
+ +	AUDIO_SBC = 10,
+-+	AUDIO_MSBC = 11,
+-+	AUDIO_TELINK_SBC = 14
+++	AUDIO_MSBC = 11
+ +};
+ +/* One mono stream. No allocation, resampling, channel mixing or hardware I/O.
+ + * PROBE: 1 recognized, 0 other codec, -1 invalid settings.
+@@ -69799,7 +70041,7 @@
+ +#endif
+ --- /dev/null
+ +++ b/src/decoders/decoder_config.h
+-@@ -0,0 +1,30 @@
++@@ -0,0 +1,28 @@
+ +#ifndef DECODER_CONFIG_H
+ +#define DECODER_CONFIG_H
+ +#ifndef DECODER_CUSTOM
+@@ -69811,7 +70053,6 @@
+ +#define DECODER_G722
+ +#define DECODER_SBC
+ +#define DECODER_MSBC
+-+#define DECODER_TSBC
+ +#endif
+ +/* Keep the previous grouped build options as aliases. */
+ +#ifdef DECODER_PCM
+@@ -69824,8 +70065,7 @@
+ +#endif
+ +#if !defined(DECODER_PCM8) && !defined(DECODER_PCM16) && !defined(DECODER_ADPCM) \
+ +	&& !defined(DECODER_ALAW) && !defined(DECODER_ULAW) && !defined(DECODER_G722) \
+-+	&& !defined(DECODER_AMR) && !defined(DECODER_SBC) && !defined(DECODER_MSBC) \
+-+	&& !defined(DECODER_TSBC)
+++	&& !defined(DECODER_AMR) && !defined(DECODER_SBC) && !defined(DECODER_MSBC)
+ +#error "Enable at least one audio decoder"
+ +#endif
+ +#define DECODER_MAX_RATE 41000u
+@@ -70643,7 +70883,7 @@
+ @@ -0,0 +1,8 @@
+ +#include "libsbc.h"
+ +#include "sbc_internal.h"
+-+#if defined(DECODER_SBC) || defined(DECODER_TSBC)
+++#if defined(DECODER_SBC)
+ +int libsbc_decode(struct decoder_frame *frame)
+ +{
+ +	return subband_decode(frame, 0);
+@@ -70706,14 +70946,14 @@
+ +};
+ --- /dev/null
+ +++ b/src/decoders/subband.c
+-@@ -0,0 +1,227 @@
++@@ -0,0 +1,211 @@
+ +/* SBC mono decoder. Structure and constants checked against the Telink
+ + * b85 SBC/mSBC archives. Bit allocation/filter math also follows BlueZ libsbc:
+ + * Copyright (C) 2004-2010 Marcel Holtmann, Henryk Ploetz, Brad Midgley,
+ + * Nokia Corporation. SPDX-License-Identifier: LGPL-2.1-or-later.
+ + * Transport, encoder, SDM, heap allocation and stereo paths are omitted. */
+ +#include "sbc_internal.h"
+-+#if defined(DECODER_SBC) || defined(DECODER_MSBC) || defined(DECODER_TSBC)
+++#if defined(DECODER_SBC) || defined(DECODER_MSBC)
+ +#include "sbc_tables.h"
+ +struct subband_state {
+ +	int32_t history[170];
+@@ -70842,10 +71082,9 @@
+ +	struct subband_state *state = f->state;
+ +	const uint8_t *data = f->input;
+ +	unsigned input_size = f->input_size;
+-+	uint8_t telink_frame[23];
+ +	unsigned blocks, pool, frequency = 0, snr = 0, length, band, block, bit = 64;
+ +	uint8_t scale[8], bits[8];
+-+	if (msbc ? f->codec != AUDIO_MSBC : (f->codec != AUDIO_SBC && f->codec != AUDIO_TELINK_SBC))
+++	if (msbc ? f->codec != AUDIO_MSBC : f->codec != AUDIO_SBC)
+ +		return f->flags & DECODER_PROBE ? 0 : -1;
+ +	if (!f->rate && !((f->flags & DECODER_PROBE) && f->input_size))
+ +		return -1;
+@@ -70860,16 +71099,6 @@
+ +		return 1;
+ +	}
+ +	f->input_used = f->output_used = 0;
+-+	if (f->codec == AUDIO_TELINK_SBC) {
+-+		if (input_size < 20)
+-+			return -2;
+-+		telink_frame[0] = 0x9c;
+-+		telink_frame[1] = 0x11;
+-+		telink_frame[2] = 12;
+-+		memcpy(telink_frame + 3, data, 20);
+-+		data = telink_frame;
+-+		input_size = sizeof(telink_frame);
+-+	}
+ +	if (input_size < 8)
+ +		return -2;
+ +	if (msbc) {
+@@ -70878,11 +71107,6 @@
+ +		blocks = 15;
+ +		pool = 26;
+ +		f->rate = 16000;
+-+	} else if (f->codec == AUDIO_TELINK_SBC) {
+-+		if (data[0] != 0x9c || f->rate != 16000)
+-+			return -1;
+-+		blocks = 10;
+-+		pool = 12;
+ +	} else {
+ +		uint8_t header = data[1];
+ +		frequency = header >> 6;
+@@ -70902,7 +71126,7 @@
+ +	if (frame_crc(data) != data[3])
+ +		return -1;
+ +	if (f->flags & DECODER_PROBE) {
+-+		f->input_used = f->codec == AUDIO_TELINK_SBC ? 20 : length;
+++		f->input_used = length;
+ +		f->output_used = blocks * 8;
+ +		return 1;
+ +	}
+@@ -70929,7 +71153,7 @@
+ +		}
+ +		synthesize(state, samples, f->output + block * 8);
+ +	}
+-+	f->input_used = f->codec == AUDIO_TELINK_SBC ? 20 : length;
+++	f->input_used = length;
+ +	f->output_used = blocks * 8;
+ +	return 0;
+ +}
+@@ -72223,13 +72447,13 @@
+ +ifneq ($(filter AMR,$(CGD1_DECODERS)),)
+ +OBJS += $(OUT_PATH)/src/decoders/libamr.o
+ +endif
+-+ifneq ($(filter SBC TSBC,$(CGD1_DECODERS)),)
+++ifneq ($(filter SBC,$(CGD1_DECODERS)),)
+ +OBJS += $(OUT_PATH)/src/decoders/libsbc.o
+ +endif
+ +ifneq ($(filter MSBC,$(CGD1_DECODERS)),)
+ +OBJS += $(OUT_PATH)/src/decoders/libmsbc.o
+ +endif
+-+ifneq ($(filter SBC MSBC TSBC,$(CGD1_DECODERS)),)
+++ifneq ($(filter SBC MSBC,$(CGD1_DECODERS)),)
+ +OBJS += $(OUT_PATH)/src/decoders/subband.o
+ +endif
+ +include src/decoders/amr.mk

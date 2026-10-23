@@ -1884,7 +1884,7 @@ function menuUpgrade() {
 	if(!otaEnabled) return;
 	let is = "";
 	if(hwver_id == 58) {
-		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v99r3.bin</button><br>';
+		is += '<button type="button" onclick="FirmwareUpgrade()">Custom Firmware: CGD1_v100.bin</button><br>';
 	}
 	$("ldfile").hidden = false;
 	if(hwver_id != null && hwver_id != 58) {
@@ -2864,7 +2864,7 @@ function FirmwareZigbee() {
 }
 function FirmwareUpgrade() {
 	if(hwver_id == 58) {
-		ajax_file(new URL('./CGD1/CGD1_v99r3.bin', location.href).href, getFirmwareArray, '');
+		ajax_file(new URL('./CGD1/CGD1_v100.bin', location.href).href, getFirmwareArray, '');
 		return;
 	}
 	if(hwver_id != null) {
@@ -3217,9 +3217,9 @@ function cgd1AlarmPanel() {
 		'<label>Backlight duration <input id="cgd1LightSeconds" type="range" min="0" max="30" value="10" oninput="this.nextElementSibling.value=this.value" onchange="cgd1SetLightSeconds()"><output>10</output> s</label><br>' +
 		'<label>Night brightness <select id="cgd1NightOn"><option value="0">Off</option><option value="1">On</option></select> <input id="cgd1NightBrightness" type="range" min="0" max="10" step="1" value="1" oninput="this.nextElementSibling.value=this.value"><output>1</output></label> <input id="cgd1NightStart" type="time" value="22:00">–<input id="cgd1NightEnd" type="time" value="07:00"> <button type="button" onclick="cgd1ApplyNight()">Apply</button><br>' +
 		'<label>Ringtone <select id="cgd1Sound" onchange="cgd1SetSound()"><option value="0">Slot A</option><option value="1">Slot B</option></select></label><br>' +
-		'<label>File <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw,.cgda,.sbc,.msbc,.amr,.g722,.alaw,.ulaw,.tsbc" onchange="cgd1LoadAudio()"></label><br>' +
+		'<label>File <input id="cgd1PcmFile" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.pcm,.raw,.cgda,.sbc,.msbc,.amr,.g722,.alaw,.ulaw" onchange="cgd1LoadAudio()"></label><br>' +
 		'<span id="cgd1FlashInfo" role="status">Reading SPI flash…</span><br>' +
-		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">G.711 A-law</option><option value="5">G.711 µ-law</option><option value="8">G.722 (encoded file)</option><option value="9">AMR-NB/WB (encoded file)</option><option value="10">SBC (encoded file)</option><option value="11">mSBC (encoded file)</option><option value="14">Telink SBC (encoded file)</option></select></label> ' +
+		'<label>Format <select id="cgd1Codec" onchange="cgd1AudioOptions()"><option value="1">PCM8</option><option value="2">PCM16</option><option value="3">IMA ADPCM4</option><option value="4">G.711 A-law</option><option value="5">G.711 µ-law</option><option value="8">G.722 (encoded file)</option><option value="9">AMR-NB/WB (encoded file)</option><option value="10">SBC (encoded file)</option><option value="11">mSBC (encoded file)</option></select></label> ' +
 		'<label>Hz <select id="cgd1Rate" onchange="cgd1AudioOptions()"><option value="4000">4000</option><option value="8000" selected>8000</option><option value="16000">16000</option><option value="24000">24000</option><option value="32000">32000</option><option value="40000">40000</option><option value="41000">41000</option></select></label> ' +
 		'<label>From <input id="cgd1TrimStart" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> <label>To <input id="cgd1TrimEnd" type="number" min="0" step="0.01" value="0" style="width:6em" onchange="cgd1AudioOptions()"></label> s<br>' +
 		'<span id="cgd1AudioInfo" role="status"></span><br>' +
@@ -3646,15 +3646,14 @@ function cgd1ReadEncoded(data, name) {
 			if(at+length>data.length || (rate && rate!==hz)) throw new Error('Truncated or mixed-rate SBC stream');
 			rate=hz; frames+=samples; at+=length;
 		}
-	} else if(/\.(g722|alaw|ulaw|tsbc)$/i.test(name)) {
-		codec = /\.g722$/i.test(name) ? 8 : /\.alaw$/i.test(name) ? 4 : /\.ulaw$/i.test(name) ? 5 : 14;
-		rate = (codec===14 || codec===8) ? 16000 : Number($('cgd1Rate').value);
-		if(codec===14 && data.length%20) throw new Error('Telink SBC requires complete 20-byte frames');
-		frames = codec===14 ? data.length/20*80 : codec===8 ? data.length*2 : data.length;
+	} else if(/\.(g722|alaw|ulaw)$/i.test(name)) {
+		codec = /\.g722$/i.test(name) ? 8 : /\.alaw$/i.test(name) ? 4 : 5;
+		rate = codec===8 ? 16000 : Number($('cgd1Rate').value);
+		frames = codec===8 ? data.length*2 : data.length;
 		bytes = cgd1AudioHeader(codec,rate,frames,data);
 	} else return null;
 	if(!frames || !cgd1Geometry || !(cgd1Geometry.codecs & (1<<codec))) throw new Error('File codec is not compiled into this firmware');
-	const rates={8:[16000],9:[8000,16000],10:[16000,32000],11:[16000],14:[16000]}[codec];
+	const rates={8:[16000],9:[8000,16000],10:[16000,32000],11:[16000]}[codec];
 	if(rates ? !rates.includes(rate) : rate<4000 || rate>41000) throw new Error('Unsupported codec sample rate');
 	if(bytes.length>cgd1Geometry.slot) throw new Error('Encoded file exceeds detected SPI slot');
 	return {bytes,codec,rate,frames};
@@ -3702,7 +3701,7 @@ function cgd1AudioOptions() {
 	for(const id of ['cgd1Rate','cgd1TrimStart','cgd1TrimEnd']) $(id).disabled = !!cgd1Encoded || cgd1Uploading;
 	for(const option of $('cgd1Rate').options) {
 		const bit = {4000:1,8000:2,16000:4,24000:16,32000:8,40000:32,41000:64}[option.value];
-		const rates = {8:[16000],9:[8000,16000],10:[16000,32000],11:[16000],14:[16000]}[codec];
+		const rates = {8:[16000],9:[8000,16000],10:[16000,32000],11:[16000]}[codec];
 		option.disabled = !!(cgd1Geometry && !(cgd1Geometry.rates & bit)) ||
 			!!(rates && !rates.includes(Number(option.value)));
 	}

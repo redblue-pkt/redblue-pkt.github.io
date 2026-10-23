@@ -1,0 +1,7 @@
+Target build without warnings; v99r8 rebuilt byte-identically with this toolchain.
+8 codecs: baseline flash == current flash == current live decoded samples.
+C stream functions: fragmented PCM16, ring wrap, exact PWM values, END/drain, stale token, bad sequence, timeout, disconnect.
+Python protocol: credits, packet sequence wrap, bad counters/token, DATA error.
+Real FFmpeg/HTTP + mocked HA/BLE: G722/SBC/mSBC, exact bytes, STOP and volume.
+Python/JS syntax, OTA marker/length/CRC, exact clean-source patch application, patch-on-patch, web binary patches and new HA patch passed.
+No physical CGD1 or installed HA runtime validation. GitHub unchanged.

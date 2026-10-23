@@ -1,0 +1,21 @@
+{
+  "domain": "cgd1_speaker",
+  "name": "CGD1 Speaker",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/redblue-pkt/redblue-pkt.github.io",
+  "codeowners": [],
+  "dependencies": [
+    "bluetooth_adapters",
+    "ffmpeg",
+    "media_source"
+  ],
+  "requirements": [],
+  "iot_class": "local_push",
+  "bluetooth": [
+    {
+      "local_name": "CGD_*",
+      "connectable": true
+    }
+  ]
+}

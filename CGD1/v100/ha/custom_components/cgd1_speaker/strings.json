@@ -1,0 +1,26 @@
+{
+  "title": "CGD1 Speaker",
+  "config": {
+    "step": {
+      "user": {
+        "title": "CGD1 Speaker",
+        "description": "Requires CGD1 firmware v10.0 with BLE live audio. Close Telink Manager before playing.",
+        "data": {
+          "address": "Bluetooth MAC address",
+          "name": "Name"
+        }
+      },
+      "confirm": {
+        "title": "CGD1 Speaker",
+        "description": "Add this CGD1 as a BLE live audio player? Requires firmware v10.0."
+      }
+    },
+    "error": {
+      "invalid_address": "Enter a Bluetooth MAC address.",
+      "not_discovered": "No connectable Bluetooth adapter has discovered this address."
+    },
+    "abort": {
+      "already_configured": "This clock is already configured."
+    }
+  }
+}
